@@ -1,11 +1,10 @@
 use anyhow::{bail, Context, Result};
-use nix::unistd::{fork, ForkResult};
 use single_instance::SingleInstance;
+use std::env;
 use std::fs;
 use std::io::Write;
 use std::os::unix::net::UnixListener;
-use std::process::exit;
-use std::process::Command;
+use std::process::{exit, Command};
 
 use crate::common::SOCKET_PATH;
 
@@ -28,28 +27,27 @@ fn dbus_launch() -> Result<String> {
     Ok(String::from_utf8_lossy(out.stdout.as_slice()).into())
 }
 
-pub fn start_daemon() {
-    match unsafe { fork() } {
-        Ok(ForkResult::Parent { .. }) => return,
-        Ok(ForkResult::Child) => (),
-        Err(_) => panic!("fork failed"),
-    }
+pub fn start_daemon() -> Result<()> {
+    Command::new(env::current_exe()?).arg("daemon").spawn()?;
+    Ok(())
+}
 
-    let si = SingleInstance::new("wsl-session-manager").unwrap();
+pub fn run_daemon() -> Result<()> {
+    let si = SingleInstance::new("wsl-session-manager")?;
     if !si.is_single() {
         exit(0);
     }
 
     // launch the dbus-daemon and get the output
-    let dbus_env = dbus_launch().unwrap();
+    let dbus_env = dbus_launch()?;
 
     // set up the socket
     let _ = fs::remove_file(SOCKET_PATH);
-    let listener = UnixListener::bind(SOCKET_PATH).unwrap();
+    let listener = UnixListener::bind(SOCKET_PATH)?;
 
     // handle connections
     loop {
-        let (mut socket, _) = listener.accept().unwrap();
+        let (mut socket, _) = listener.accept()?;
         // don't care about failed writes
         let _ = socket.write_all(dbus_env.as_ref());
     }
