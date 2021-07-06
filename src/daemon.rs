@@ -33,8 +33,8 @@ pub fn start_daemon() -> io::Result<Child> {
     // TODO: should probably capture stdout/stderr
     Command::new(env::current_exe()?)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .arg("daemon")
         .spawn()
 }
