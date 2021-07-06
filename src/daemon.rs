@@ -2,8 +2,10 @@ use anyhow::{bail, Context, Result};
 use single_instance::SingleInstance;
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::os::unix::net::UnixListener;
+use std::process::Child;
+use std::process::Stdio;
 use std::process::{exit, Command};
 
 use crate::common::SOCKET_PATH;
@@ -27,9 +29,14 @@ fn dbus_launch() -> Result<String> {
     Ok(String::from_utf8_lossy(out.stdout.as_slice()).into())
 }
 
-pub fn start_daemon() -> Result<()> {
-    Command::new(env::current_exe()?).arg("daemon").spawn()?;
-    Ok(())
+pub fn start_daemon() -> io::Result<Child> {
+    // TODO: should probably capture stdout/stderr
+    Command::new(env::current_exe()?)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .arg("daemon")
+        .spawn()
 }
 
 pub fn run_daemon() -> Result<()> {
