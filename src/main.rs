@@ -1,12 +1,13 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use common::SOCKET_PATH;
 use daemon::{run_daemon, start_daemon};
-use std::env;
-use std::io::{prelude::*, stdout};
+use std::io::{prelude::*, stdout, ErrorKind};
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+use std::{env, fs};
 
 mod common;
 mod daemon;
@@ -21,25 +22,51 @@ fn main() -> Result<()> {
         run_daemon()?
     }
 
-    // otherwise, try to start or connect to the daemon
+    // TODO: maybe check the single-instance here too?
+    let mut child = start_daemon()?;
+
+    let start_time = SystemTime::now();
+
     loop {
-        start_daemon()?;
+        // make sure that we don't hang for longer than a second before giving up
+        if start_time.elapsed()? > Duration::new(1, 0) {
+            return Err(anyhow!("could not connect to daemon"));
+        }
+
+        // ensure that the daemon process hasn't crashed
+        if let Ok(Some(exit_status)) = child.try_wait() {
+            let code = exit_status.code().unwrap();
+            if code != 0 {
+                return Err(anyhow!("daemon exited with non-zero exit code: {}", code));
+            }
+        }
+
         // wait for daemon to start
         sleep(Duration::new(0, 10_000_000));
 
-        // listen for a server
-        let attempt = UnixStream::connect(SOCKET_PATH);
-
-        // try again
-        if attempt.is_err() {
-            continue;
-        }
-
-        // receive env variables from daemon
-        match run_client(&mut attempt.unwrap()) {
-            Ok(_) => break,
+        // wait until a socket is created
+        match fs::metadata(SOCKET_PATH) {
+            Ok(metadata) => {
+                let file_type = metadata.file_type();
+                if !file_type.is_socket() {
+                    continue;
+                }
+                match UnixStream::connect(SOCKET_PATH) {
+                    Ok(mut stream) => {
+                        run_client(&mut stream)?;
+                        break;
+                    }
+                    Err(e) => {
+                        if e.kind() != ErrorKind::ConnectionRefused {
+                            return Err(anyhow!("an unknown error occurred: {}", e));
+                        }
+                    }
+                };
+            }
             Err(e) => {
-                eprintln!("{}", e);
+                if e.kind() != ErrorKind::NotFound {
+                    return Err(anyhow!("an unknown error occurred: {}", e));
+                }
             }
         }
     }
