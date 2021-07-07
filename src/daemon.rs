@@ -2,12 +2,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use single_instance::SingleInstance;
 use std::env;
 use std::fs;
-use std::io::BufRead;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::os::unix::net::UnixListener;
-use std::process::Child;
-use std::process::Stdio;
-use std::process::{exit, Command};
+use std::process::{exit, Child, Command, Stdio};
 
 use crate::common::SOCKET_PATH;
 

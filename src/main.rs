@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 use common::SOCKET_PATH;
 use daemon::{run_daemon, start_daemon};
-use std::io::{prelude::*, ErrorKind};
+use std::env;
+use std::io::{self, prelude::*, ErrorKind};
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
-use std::{env, io};
 
 mod common;
 mod daemon;
