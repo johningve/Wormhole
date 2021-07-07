@@ -59,7 +59,11 @@ pub fn start_daemon() -> io::Result<Child> {
 }
 
 pub fn run_daemon() -> Result<()> {
-    let si = SingleInstance::new("wsl-session-manager")?;
+    let machine_id = machine_uid::get().map_err(|e| anyhow!("failed to get machine id: {}", e))?;
+
+    // we use the machine id in the instance name, because otherwise it is not possible to run
+    // wsl-session-manager in multiple distros at the same time.
+    let si = SingleInstance::new(format!("wsl-session-manager:{}", machine_id).as_str())?;
     if !si.is_single() {
         exit(0);
     }
