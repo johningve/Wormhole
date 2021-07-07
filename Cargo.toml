@@ -7,5 +7,6 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-single-instance = "0.3"
 machine-uid = "0.2"
+nix = "0.21"
+single-instance = "0.3"

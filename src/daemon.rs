@@ -1,10 +1,12 @@
 use anyhow::{anyhow, bail, Context, Result};
+use nix::sys::wait::waitpid;
+use nix::unistd::{fork, setsid, ForkResult};
 use single_instance::SingleInstance;
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{BufRead, Write};
 use std::os::unix::net::UnixListener;
-use std::process::{exit, Child, Command, Stdio};
+use std::process::{exit, Command, Stdio};
 
 use crate::common::SOCKET_PATH;
 
@@ -45,14 +47,25 @@ fn dbus_launch() -> Result<(String, u32)> {
     Ok((addr, pid))
 }
 
-pub fn start_daemon() -> io::Result<Child> {
-    // TODO: should probably capture stdout/stderr
-    Command::new(env::current_exe()?)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .arg("daemon")
-        .spawn()
+pub fn start_daemon() -> Result<()> {
+    // double fork such that the daemon is disconnected from the child
+    match unsafe { fork() }? {
+        ForkResult::Parent { child } => {
+            waitpid(child, None)?;
+            exit(0);
+        }
+        ForkResult::Child => {
+            // setsid creates a new process group id, or something...
+            setsid()?;
+            Command::new(env::current_exe()?)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .arg("daemon")
+                .spawn()?;
+        }
+    };
+    Ok(())
 }
 
 pub fn run_daemon() -> Result<()> {

@@ -21,25 +21,13 @@ fn main() -> Result<()> {
         run_daemon()?
     }
 
-    let mut child = start_daemon()?;
+    start_daemon()?;
 
     let start_time = SystemTime::now();
     loop {
         // make sure that we don't hang for longer than a second before giving up
         if start_time.elapsed()? > Duration::new(1, 0) {
             bail!("could not connect to daemon");
-        }
-
-        // ensure that the daemon process hasn't crashed
-        if let Ok(Some(exit_status)) = child.try_wait() {
-            let code = exit_status.code().unwrap();
-            if code != 0 {
-                if let Ok(output) = child.wait_with_output() {
-                    io::stdout().write_all(&output.stdout).unwrap();
-                    io::stderr().write_all(&output.stderr).unwrap();
-                }
-                bail!("daemon exited with non-zero exit code: {}", code);
-            }
         }
 
         // wait for daemon to start
