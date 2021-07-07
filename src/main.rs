@@ -51,7 +51,7 @@ fn main() -> Result<()> {
                 break;
             }
             Err(e) => {
-                if e.kind() != ErrorKind::ConnectionRefused {
+                if e.kind() != ErrorKind::ConnectionRefused && e.kind() != ErrorKind::NotFound {
                     bail!("an unknown error occurred: {}", e);
                 }
             }
