@@ -52,7 +52,6 @@ pub fn start_daemon() -> Result<()> {
     match unsafe { fork() }? {
         ForkResult::Parent { child } => {
             waitpid(child, None)?;
-            exit(0);
         }
         ForkResult::Child => {
             // setsid creates a new process group id, or something...
@@ -63,6 +62,7 @@ pub fn start_daemon() -> Result<()> {
                 .stderr(Stdio::null())
                 .arg("daemon")
                 .spawn()?;
+            exit(0);
         }
     };
     Ok(())
