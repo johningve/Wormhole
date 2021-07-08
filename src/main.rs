@@ -21,17 +21,12 @@ fn main() -> Result<()> {
         run_daemon()?
     }
 
-    start_daemon()?;
-
     let start_time = SystemTime::now();
     loop {
         // make sure that we don't hang for longer than a second before giving up
         if start_time.elapsed()? > Duration::new(1, 0) {
             bail!("could not connect to daemon");
         }
-
-        // wait for daemon to start
-        sleep(Duration::new(0, 10_000_000));
 
         match UnixStream::connect(SOCKET_PATH) {
             Ok(mut stream) => {
@@ -44,6 +39,12 @@ fn main() -> Result<()> {
                 }
             }
         };
+
+        // attempt to start the daemon
+        start_daemon()?;
+
+        // wait for daemon to start
+        sleep(Duration::new(0, 10_000_000));
     }
 
     Ok(())
