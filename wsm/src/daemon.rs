@@ -33,13 +33,13 @@ fn dbus_launch() -> Result<(String, u32)> {
     // the lines iterator returns a Result<_>, so we need to use the '?' operator twice.
     let addr = lines_iter
         .next()
-        .ok_or(anyhow!("dbus-daemon did not print address to stdout"))?
+        .ok_or_else(|| anyhow!("dbus-daemon did not print address to stdout"))?
         .context("failed to read output from dbus-daemon")?;
 
     // is this silly?
     let pid = lines_iter
         .next()
-        .ok_or(anyhow!("dbus-daemon did not print pid to stdout"))?
+        .ok_or_else(|| anyhow!("dbus-daemon did not print pid to stdout"))?
         .context("failed to read output from dbus-daemon")?
         .parse::<u32>()
         .context("failed to parse pid")?;

@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime};
 mod common;
 mod daemon;
 
+#[allow(clippy::iter_nth_zero)]
 fn main() -> Result<()> {
     // check if "daemon" has been passed as an argument
     if let Some(arg) = env::args().nth(1) {

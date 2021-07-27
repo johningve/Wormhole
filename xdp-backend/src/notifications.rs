@@ -14,17 +14,17 @@ impl Notifications {
 
     fn get_capabilities(&self) -> Vec<String> {
         println!("GetCapabilities called");
-        return Vec::new();
+        Vec::new()
     }
 
     fn get_server_information(&self) -> ServerInformation {
         println!("GetServerInformation called");
-        return ServerInformation::get();
+        ServerInformation::get()
     }
 
     fn notify(&self, notification: Notification) -> u32 {
         println!("Notify called with notification {:#?}", notification);
-        return 0;
+        0
     }
 
     #[dbus_interface(signal)]
@@ -51,12 +51,12 @@ pub struct ServerInformation<'a> {
 
 impl<'a> ServerInformation<'_> {
     fn get() -> Self {
-        return Self {
+        Self {
             name: "master",
             vendor: "John Ingve Olsen",
             version: "0.1",
             spec_version: "1.2",
-        };
+        }
     }
 }
 
