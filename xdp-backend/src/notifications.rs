@@ -60,14 +60,14 @@ impl<'a> ServerInformation<'_> {
     }
 }
 
-#[derive(Debug, Type, Deserialize)]
+#[derive(Clone, Debug, Type, Deserialize)]
 pub struct Notification<'a> {
-    app_name: &'a str,
-    replaces_id: u32,
-    app_icon: &'a str,
-    summary: &'a str,
-    body: &'a str,
-    actions: Vec<&'a str>,
-    hints: HashMap<&'a str, zvariant::Value<'a>>,
-    expire_timeout: i32,
+    pub app_name: &'a str,
+    pub replaces_id: u32,
+    pub app_icon: &'a str,
+    pub summary: &'a str,
+    pub body: &'a str,
+    pub actions: Vec<&'a str>,
+    pub hints: HashMap<&'a str, zvariant::Value<'a>>,
+    pub expire_timeout: i32,
 }
