@@ -5,6 +5,8 @@ use std::path::Path;
 use windows::{IInspectable, Interface, HSTRING};
 use xml::escape::escape_str_attribute;
 
+mod vmcompute;
+
 // You need to have the windows crate in your Cargo.toml
 //
 // and call windows::build! in a build.rs file like so
@@ -27,6 +29,8 @@ use bindings::{
 pub use windows::Error;
 
 fn main() {
+    dbg!(vmcompute::get_wsl_vmid().unwrap().unwrap());
+
     do_toast().expect("not sure if this is actually failable");
     // this is a hack to workaround toasts not showing up if the application closes too quickly
     // also so one has time to click on
@@ -36,7 +40,7 @@ fn main() {
 fn do_toast() -> windows::Result<()> {
     let toast_xml = XmlDocument::new()?;
 
-    toast_xml.LoadXml(HSTRING::from(
+    toast_xml.LoadXml(
         format!(r#"<toast duration="long">
                 <visual>
                     <binding template="ToastGeneric">
@@ -57,7 +61,7 @@ fn do_toast() -> windows::Result<()> {
                 </actions>
             </toast>"#,
         escape_str_attribute(&Path::new("C:\\path_to_image_in_toast.jpg").display().to_string()),
-    ))).expect("the xml is malformed");
+    )).expect("the xml is malformed");
 
     // Create the toast and attach event listeners
     let toast_notification = ToastNotification::CreateToastNotification(toast_xml)?;
