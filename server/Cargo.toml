@@ -6,12 +6,22 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-xml-rs = "0.8"
-windows = "0.19"
+# dependencies for windows stuff
+bindings = { path = "bindings" }
+uuid = { version = "0.8", features = ["serde"] }
 widestring = "0.4"
+windows = "0.19"
+xml-rs = "0.8"
+
+# dependencies for tonic
+async-stream = "0.3"
+futures = "0.3"
+tonic = "0.5"
+prost = "0.8"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "net"] }
+rpc = { path = "../rpc" }
+
+# other
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "0.8", features = ["serde"] }
-bindings = { path = "bindings" }
 scopeguard = "1.1"
-tokio = { version = "1.0", features = ["macros", "net"] }

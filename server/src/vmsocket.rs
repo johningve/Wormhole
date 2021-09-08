@@ -10,8 +10,8 @@ use uuid::Uuid;
 use windows::Guid;
 
 struct HyperVSocketAddr {
-    pub family: u16,
-    pub reserved: u16,
+    pub family: u32,
+    pub _reserved: u16,
     pub vm_id: windows::Guid,
     pub service_id: windows::Guid,
 }
@@ -34,6 +34,7 @@ fn winsock_error() -> std::io::Error {
 pub fn bind_hyperv_socket(vmid: Uuid, port: u32) -> std::io::Result<TcpListener> {
     init();
     let mut local_addr: HyperVSocketAddr = unsafe { std::mem::zeroed() };
+    local_addr.family = AF_HYPERV as _;
     let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
     let fields = service_id.as_fields();
     local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
