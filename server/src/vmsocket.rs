@@ -1,11 +1,10 @@
-use std::{net, os::windows::prelude::FromRawSocket, sync::Once};
-
 use bindings::Windows::Win32::Networking::WinSock::{
-    bind, closesocket, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET, SOCKADDR,
-    SOCK_STREAM, SOMAXCONN,
+    accept, bind, closesocket, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
+    SOCKADDR, SOCKET, SOCK_STREAM, SOMAXCONN,
 };
 use scopeguard::ScopeGuard;
-use tokio::net::TcpListener;
+use std::{net, os::windows::prelude::FromRawSocket, sync::Once};
+use tokio::net::TcpStream;
 use uuid::Uuid;
 use windows::Guid;
 
@@ -31,45 +30,64 @@ fn winsock_error() -> std::io::Error {
     std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() }.0)
 }
 
-pub fn bind_hyperv_socket(vmid: Uuid, port: u32) -> std::io::Result<TcpListener> {
-    init();
-    let mut local_addr: HyperVSocketAddr = unsafe { std::mem::zeroed() };
-    local_addr.family = AF_HYPERV as _;
-    let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
-    let fields = service_id.as_fields();
-    local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
-    let fields = vmid.as_fields();
-    local_addr.vm_id = Guid::from_values(fields.0, fields.1, fields.2, *fields.3);
+pub struct HyperVSocket(SOCKET);
 
-    // HV_PROTOCOL_RAW is defined as 1
-    let fd = unsafe { socket(AF_HYPERV as _, SOCK_STREAM as _, 1) };
-    if fd.0 == INVALID_SOCKET as usize {
-        return Err(winsock_error());
+impl Drop for HyperVSocket {
+    fn drop(&mut self) {
+        unsafe { closesocket(self.0) };
     }
-    let _guard = scopeguard::guard((), |_| {
-        unsafe { closesocket(fd) };
-    });
+}
 
-    let result = unsafe {
-        bind(
-            fd,
-            &local_addr as *const _ as *const SOCKADDR,
-            std::mem::size_of::<HyperVSocketAddr>() as _,
-        )
-    };
-    if result < 0 {
-        return Err(winsock_error());
+impl HyperVSocket {
+    pub fn bind(vmid: Uuid, port: u32) -> std::io::Result<HyperVSocket> {
+        init();
+        let mut local_addr: HyperVSocketAddr = unsafe { std::mem::zeroed() };
+        local_addr.family = AF_HYPERV as _;
+        let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
+        let fields = service_id.as_fields();
+        local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
+        let fields = vmid.as_fields();
+        local_addr.vm_id = Guid::from_values(fields.0, fields.1, fields.2, *fields.3);
+
+        // HV_PROTOCOL_RAW is defined as 1
+        let fd = unsafe { socket(AF_HYPERV as _, SOCK_STREAM as _, 1) };
+        if fd.0 == INVALID_SOCKET as usize {
+            return Err(winsock_error());
+        }
+        let _guard = scopeguard::guard((), |_| {
+            unsafe { closesocket(fd) };
+        });
+
+        let result = unsafe {
+            bind(
+                fd,
+                &local_addr as *const _ as *const SOCKADDR,
+                std::mem::size_of::<HyperVSocketAddr>() as _,
+            )
+        };
+        if result < 0 {
+            return Err(winsock_error());
+        }
+
+        let result = unsafe { listen(fd, SOMAXCONN as _) };
+        if result < 0 {
+            return Err(winsock_error());
+        }
+
+        // defuse guard
+        ScopeGuard::into_inner(_guard);
+
+        Ok(HyperVSocket(fd))
     }
 
-    let result = unsafe { listen(fd, SOMAXCONN as _) };
-    if result < 0 {
-        return Err(winsock_error());
+    pub fn accept(&self) -> std::io::Result<TcpStream> {
+        let fd = unsafe { accept(self.0, std::ptr::null_mut(), std::ptr::null_mut()) };
+        if fd.0 == INVALID_SOCKET as usize {
+            return Err(winsock_error());
+        }
+
+        let stream = unsafe { net::TcpStream::from_raw_socket(fd.0 as _) };
+        stream.set_nonblocking(true)?;
+        TcpStream::from_std(stream)
     }
-
-    // defuse guard
-    ScopeGuard::into_inner(_guard);
-
-    let listener = unsafe { net::TcpListener::from_raw_socket(fd.0 as _) };
-    listener.set_nonblocking(true)?;
-    TcpListener::from_std(listener)
 }
