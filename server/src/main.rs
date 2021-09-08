@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let incoming = async_stream::stream! {
         let listener = vmsocket::HyperVSocket::bind(
-            vmcompute::get_wsl_vmid()?.expect("WSL VM not found!"),
+            vmcompute::get_wsl_vmid()?,
             7070,
         )?;
 

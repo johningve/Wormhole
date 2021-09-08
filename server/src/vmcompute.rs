@@ -61,12 +61,15 @@ mod hcs {
     }
 }
 
-pub fn get_wsl_vmid() -> std::io::Result<Option<Uuid>> {
+pub fn get_wsl_vmid() -> std::io::Result<Uuid> {
     let vms = hcs::enumerate_compute_systems("{}")?;
     for vm in vms {
         if vm.owner == "WSL" {
-            return Ok(Some(vm.id));
+            return Ok(vm.id);
         }
     }
-    Ok(None)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "WSL VM Not found",
+    ))
 }
