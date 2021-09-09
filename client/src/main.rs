@@ -10,6 +10,8 @@ mod vmsocket;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
     let grpc_channel = Endpoint::try_from("http://[::]:0")?
         .connect_with_connector(service_fn(|_: Uri| future::ready(VmSocket::connect(7070))))
         .await?;
