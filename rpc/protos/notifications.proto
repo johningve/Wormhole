@@ -5,8 +5,8 @@ package notifications;
 import "google/protobuf/empty.proto";
 
 service Notifications {
-  rpc notify(NotifyRequest) returns (stream NotifyResponse);
-  rpc close_notification(CloseNotificationRequest)
+  rpc Notify(NotifyRequest) returns (stream NotifyResponse);
+  rpc CloseNotification(CloseNotificationRequest)
       returns (google.protobuf.Empty);
 }
 
