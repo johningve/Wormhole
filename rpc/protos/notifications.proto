@@ -2,14 +2,39 @@ syntax = "proto3";
 
 package notifications;
 
+import "google/protobuf/empty.proto";
+
 service Notifications {
-  rpc Notify(NotifyRequest) returns (NotifyResponse);
+  rpc notify(NotifyRequest) returns (stream NotifyResponse);
+  rpc close_notification(CloseNotificationRequest)
+      returns (google.protobuf.Empty);
 }
 
 message NotifyRequest {
-  string Name = 1;
+  string app_name = 1;
+  uint32 replaces_id = 2;
+  string app_icon = 3;
+  string summary = 4;
+  string body = 5;
+  repeated string actions = 6;
+  int32 expire_timeout = 7;
+}
+
+message NotificationCreated { uint32 id = 1; }
+
+message NotificationDismissed { uint32 id = 1; }
+
+message NotificationActionInvoked {
+  uint32 id = 1;
+  string action = 2;
 }
 
 message NotifyResponse {
-  string Message = 1;
+  oneof event {
+    NotificationCreated created = 1;
+    NotificationDismissed dismissed = 2;
+    NotificationActionInvoked action_invoked = 3;
+  };
 }
+
+message CloseNotificationRequest { uint32 id = 1; }
