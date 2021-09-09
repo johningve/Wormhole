@@ -1,27 +1,27 @@
 use futures::future;
-use rpc::notifications::{notifications_client::NotificationsClient, NotifyRequest};
 use std::{convert::TryFrom, error::Error};
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use vmsocket::VmSocket;
+use zbus::{Connection, ObjectServer};
 
+mod services;
 mod vmsocket;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let channel = Endpoint::try_from("http://[::]:0")?
+    let grpc_channel = Endpoint::try_from("http://[::]:0")?
         .connect_with_connector(service_fn(|_: Uri| future::ready(VmSocket::connect(7070))))
         .await?;
 
-    let mut client = NotificationsClient::new(channel);
+    let dbus_connection = Connection::new_session()?;
+    let mut object_server = ObjectServer::new(&dbus_connection);
 
-    let request = tonic::Request::new(NotifyRequest {
-        name: "John Ingve".into(),
-    });
+    services::init_all(grpc_channel, &dbus_connection, &mut object_server)?;
 
-    let response = client.notify(request).await?;
-
-    println!("Response: {:?}", response);
-
-    Ok(())
+    loop {
+        if let Err(err) = object_server.try_handle_next() {
+            eprintln!("{}", err);
+        }
+    }
 }

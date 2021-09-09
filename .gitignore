@@ -1,3 +1,4 @@
 server/target
 client/target
 rpc/target
+session-manager/target

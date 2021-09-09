@@ -1,10 +1,38 @@
-use std::collections::HashMap;
-
+use rpc::notifications::notifications_client::NotificationsClient;
 use serde::{Deserialize, Serialize};
-use zbus::dbus_interface;
+use std::{collections::HashMap, convert::TryFrom};
+use tonic::transport::Channel;
+use zbus::{dbus_interface, fdo, Connection, ObjectServer};
+use zvariant::ObjectPath;
 use zvariant_derive::Type;
 
-pub struct Notifications {}
+pub struct Notifications {
+    remote: NotificationsClient<Channel>,
+}
+
+impl Notifications {
+    pub fn init(
+        grpc_channel: Channel,
+        dbus_connection: &Connection,
+        object_server: &mut ObjectServer,
+    ) -> zbus::Result<()> {
+        // register name
+        fdo::DBusProxy::new(dbus_connection)?.request_name(
+            "org.freedesktop.Notifications",
+            fdo::RequestNameFlags::ReplaceExisting.into(),
+        )?;
+
+        // register service
+        object_server.at(
+            &ObjectPath::try_from("/org/freedesktop/Notifications")?,
+            Notifications {
+                remote: NotificationsClient::new(grpc_channel),
+            },
+        )?;
+
+        Ok(())
+    }
+}
 
 #[dbus_interface(name = "org.freedesktop.Notifications")]
 impl Notifications {
