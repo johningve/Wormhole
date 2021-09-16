@@ -3,11 +3,14 @@ use services::notifications::NotificationsService;
 use tonic::transport::Server;
 
 mod services;
+mod toasthelper;
 mod vmcompute;
 mod vmsocket;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     let notifications = NotificationsService::default();
 
     let incoming = async_stream::stream! {
