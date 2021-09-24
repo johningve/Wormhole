@@ -16,20 +16,24 @@ nix = "0.22"
 
 # grpc stuff
 futures = "0.3"
-tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "net"]}
+tokio = { version = "1.0", features = [
+	"macros",
+	"rt-multi-thread",
+	"net",
+	"time",
+] }
 tonic = "0.5"
 prost = "0.8"
 tower = "0.4"
-rpc = {path = "../rpc"}
+rpc = { path = "../rpc" }
 
 # dbus
-zbus = "1.9"
-zvariant = "2.7"
-zvariant_derive = "2.7"
+zbus = { git = "https://gitlab.freedesktop.org/dbus/zbus.git" }
+zvariant = { git = "https://gitlab.freedesktop.org/dbus/zbus.git", package = "zvariant" }
+zvariant_derive = { git = "https://gitlab.freedesktop.org/dbus/zbus.git", package = "zvariant_derive" }
 serde = "1.0"
 
 # other
 scopeguard = "1.1.0"
 log = "0.4"
 env_logger = "0.9.0"
-

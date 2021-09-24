@@ -3,7 +3,7 @@ use std::{convert::TryFrom, error::Error};
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use vmsocket::VmSocket;
-use zbus::{Connection, ObjectServer};
+use zbus::{Connection, ConnectionBuilder};
 
 mod services;
 mod vmsocket;
@@ -16,14 +16,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .connect_with_connector(service_fn(|_: Uri| future::ready(VmSocket::connect(7070))))
         .await?;
 
-    let dbus_connection = Connection::new_session()?;
-    let mut object_server = ObjectServer::new(&dbus_connection);
+    let dbus_connection = ConnectionBuilder::session()?
+        .internal_executor(false)
+        .build()
+        .await?;
 
-    services::init_all(grpc_channel, &dbus_connection, &mut object_server)?;
+    // start up a task for the zbus executor to use.
+    let handle = {
+        // need to clone connection before moving into async task.
+        let dbus_connection = dbus_connection.clone();
+        tokio::spawn(async move {
+            loop {
+                dbus_connection.executor().tick().await;
+            }
+        })
+    };
 
-    loop {
-        if let Err(err) = object_server.try_handle_next() {
-            eprintln!("{}", err);
-        }
-    }
+    services::init_all(grpc_channel, &dbus_connection).await?;
+
+    handle.await?;
+
+    Ok(())
 }

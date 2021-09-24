@@ -1,12 +1,14 @@
+use futures::TryFutureExt;
 use rpc::notifications::{
     notifications_client::NotificationsClient, notify_response::Event, CloseNotificationRequest,
     NotifyRequest,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryFrom, sync::mpsc::sync_channel};
+use std::collections::HashMap;
+use tokio::sync::mpsc;
 use tonic::transport::Channel;
-use zbus::{dbus_interface, fdo, Connection, ObjectServer};
-use zvariant::ObjectPath;
+use zbus::{dbus_interface, Connection};
+use zbus::{zvariant, SignalContext};
 use zvariant_derive::Type;
 
 #[derive(Clone)]
@@ -15,20 +17,15 @@ pub struct Notifications {
 }
 
 impl Notifications {
-    pub fn init(
-        grpc_channel: Channel,
-        dbus_connection: &Connection,
-        object_server: &mut ObjectServer,
-    ) -> zbus::Result<()> {
+    pub async fn init(grpc_channel: Channel, dbus_connection: &Connection) -> zbus::Result<()> {
         // register name
-        fdo::DBusProxy::new(dbus_connection)?.request_name(
-            "org.freedesktop.Notifications",
-            fdo::RequestNameFlags::ReplaceExisting.into(),
-        )?;
+        dbus_connection
+            .request_name("org.freedesktop.Notifications")
+            .await?;
 
         // register service
-        object_server.at(
-            &ObjectPath::try_from("/org/freedesktop/Notifications")?,
+        dbus_connection.object_server_mut().await.at(
+            "/org/freedesktop/Notifications",
             Notifications {
                 remote: NotificationsClient::new(grpc_channel),
             },
@@ -40,17 +37,15 @@ impl Notifications {
 
 #[dbus_interface(name = "org.freedesktop.Notifications")]
 impl Notifications {
-    fn close_notification(&self, id: u32) {
+    async fn close_notification(&self, id: u32) {
         log::debug!("close_notification {:#?}", id);
 
         let mut s = self.clone();
-        tokio::spawn(async move {
-            s.remote
-                .close_notification(tonic::Request::new(CloseNotificationRequest { id }))
-                .await
-                .map_err(|err| log::error!("{}", err))
-                .unwrap();
-        });
+        s.remote
+            .close_notification(tonic::Request::new(CloseNotificationRequest { id }))
+            .await
+            .map_err(|err| log::error!("{}", err))
+            .unwrap();
     }
 
     fn get_capabilities(&self) -> Vec<String> {
@@ -63,9 +58,13 @@ impl Notifications {
         ServerInformation::get()
     }
 
-    fn notify(&self, notification: Notification) -> u32 {
+    async fn notify(
+        &self,
+        #[zbus(signal_context)] ctx: SignalContext<'_>,
+        notification: Notification<'_>,
+    ) -> u32 {
         log::debug!("notify {:#?}", notification);
-        let (tx, rx) = sync_channel(1);
+        let (tx, mut rx) = mpsc::channel(1);
         let mut s = self.clone();
         let request = NotifyRequest {
             app_name: notification.app_name.into(),
@@ -77,15 +76,17 @@ impl Notifications {
             expire_timeout: notification.expire_timeout,
         };
 
-        tokio::spawn(async move {
-            let mut stream = s
-                .remote
-                .notify(tonic::Request::new(request))
-                .await
-                .map_err(|err| log::error!("{}", err))
-                .unwrap()
-                .into_inner();
+        let mut stream = s
+            .remote
+            .notify(tonic::Request::new(request))
+            .await
+            .map_err(|err| log::error!("{}", err))
+            .unwrap()
+            .into_inner();
 
+        let ctx = Box::pin(SignalContext::new(ctx.connection(), ctx.path().to_owned()).unwrap());
+
+        tokio::spawn(async move {
             while let Some(response) = stream
                 .message()
                 .await
@@ -94,32 +95,36 @@ impl Notifications {
             {
                 if let Some(event) = response.event {
                     match event {
-                        Event::Created(e) => tx.send(e.id).unwrap(),
+                        Event::Created(e) => tx.send(e.id).await.unwrap(),
 
-                        Event::Dismissed(e) => s
-                            .notification_closed(e.id, 0)
+                        Event::Dismissed(e) => Self::notification_closed(&ctx, e.id, 0)
                             .map_err(|err| log::error!("{}", err))
+                            .await
                             .unwrap(),
-                        Event::ActionInvoked(e) => s
-                            .action_invoked(e.id, e.action.as_str())
-                            .map_err(|err| log::error!("{}", err))
-                            .unwrap(),
+                        Event::ActionInvoked(e) => {
+                            Self::action_invoked(&ctx, e.id, e.action.as_str())
+                                .map_err(|err| log::error!("{}", err))
+                                .await
+                                .unwrap()
+                        }
                     };
                 }
             }
         });
 
-        rx.recv().unwrap()
+        rx.recv().await.unwrap()
     }
 
     #[dbus_interface(signal)]
-    fn notification_closed(&self, id: u32, reason: u32) -> zbus::Result<()>;
+    async fn notification_closed(ctx: &SignalContext<'_>, id: u32, reason: u32)
+        -> zbus::Result<()>;
 
     #[dbus_interface(signal)]
-    fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
+    async fn action_invoked(ctx: &SignalContext<'_>, id: u32, action_key: &str)
+        -> zbus::Result<()>;
 }
 
-#[derive(Debug, Type, Serialize)]
+#[derive(Debug, Type, Serialize, Deserialize)]
 pub struct ServerInformation<'a> {
     /// The product name of the server.
     pub name: &'a str,
@@ -145,7 +150,7 @@ impl<'a> ServerInformation<'_> {
     }
 }
 
-#[derive(Clone, Debug, Type, Deserialize)]
+#[derive(Clone, Debug, Type, Serialize, Deserialize)]
 pub struct Notification<'a> {
     pub app_name: &'a str,
     pub replaces_id: u32,
