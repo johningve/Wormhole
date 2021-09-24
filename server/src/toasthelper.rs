@@ -46,14 +46,20 @@ impl ToastHelper {
         );
 
         let mut actions = String::from("<actions>");
-        for action in notify_request.actions {
-            actions.push_str(
-                format!(
-                    r#"<action content="{action}" arguments="{action}" />"#,
-                    action = escape_str_attribute(&action)
-                )
-                .as_str(),
-            );
+
+        // TODO: the freedesktop notifications spec sends actions in a vector, these should really be paired up since
+        // each even index is an action name, and every odd index is a display name.
+        for action in notify_request.actions.chunks(2) {
+            if action.len() == 2 {
+                actions.push_str(
+                    format!(
+                        r#"<action content="{content}" arguments="{action}" />"#,
+                        content = escape_str_attribute(&action[1]),
+                        action = escape_str_attribute(&action[0])
+                    )
+                    .as_str(),
+                );
+            }
         }
         actions.push_str("</actions>");
 
