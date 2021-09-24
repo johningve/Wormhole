@@ -10,9 +10,9 @@ fn main() {
         .application_id("com.github.Raytar.WSLPortalDemo")
         .build();
 
-    let action = SimpleAction::new("quit", None);
+    let action = SimpleAction::new("notification-activated", None);
     action.connect_activate(clone!(@weak app => move |_, _| {
-        println!("Activated!");
+        println!("Goodbye!");
         app.quit();
     }));
 
@@ -27,6 +27,8 @@ fn build_ui(app: &Application) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("WSLPortal Demo")
+        .default_width(200)
+        .default_height(180)
         .build();
 
     let button = Button::builder()
@@ -37,12 +39,11 @@ fn build_ui(app: &Application) {
         .margin_end(12)
         .build();
 
-    button.connect_clicked(clone!(@weak app => move |button| {
-        let notification = Notification::new("You clicked the button!");
-        notification.add_button("Ok", "app.quit");
+    button.connect_clicked(clone!(@weak app => move |_| {
+        let notification = Notification::new("Hello from Linux");
+        notification.set_body(Some("This notification was sent from a Linux application."));
+        notification.add_button("Ok", "app.notification-activated");
         app.send_notification(None, &notification);
-
-        button.set_label("Hello World!");
     }));
 
     window.set_child(Some(&button));
