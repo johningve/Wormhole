@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 # unix stuff
 libc = "0.2"
-nix = "0.22"
+nix = "0.23.0"
 
 # grpc stuff
 futures = "0.3"
@@ -28,9 +28,9 @@ tower = "0.4"
 rpc = { path = "../rpc" }
 
 # dbus
-zbus = { git = "https://gitlab.freedesktop.org/dbus/zbus.git" }
-zvariant = { git = "https://gitlab.freedesktop.org/dbus/zbus.git", package = "zvariant" }
-zvariant_derive = { git = "https://gitlab.freedesktop.org/dbus/zbus.git", package = "zvariant_derive" }
+zbus = "2.0.0-beta.7"
+zvariant = "2.9"
+zvariant_derive = "2.9"
 serde = "1.0"
 
 # other
