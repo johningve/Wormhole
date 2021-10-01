@@ -51,6 +51,7 @@ fn build_ui(app: &Application) {
         notification.set_body(Some("This notification was sent from a Linux application."));
         notification.add_button_with_target_value("Yes", "app.activated", Some(&"yes".to_variant()));
         notification.add_button_with_target_value("No", "app.activated", Some(&"no".to_variant()));
+        notification.set_default_action_and_target_value("app.activated", Some(&"default".to_variant()));
         notification.add_button("Quit", "app.quit");
         app.send_notification(None, &notification);
     }));
