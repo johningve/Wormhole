@@ -7,4 +7,5 @@ edition = "2018"
 
 [dependencies]
 gtk = { version = "0.3", package = "gtk4" }
+notify-rust = "4.5"
 ashpd = "0.1"
