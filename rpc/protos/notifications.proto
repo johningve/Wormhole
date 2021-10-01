@@ -10,13 +10,18 @@ service Notifications {
       returns (google.protobuf.Empty);
 }
 
+message Action {
+  string name = 1;
+  string label = 2;
+}
+
 message NotifyRequest {
   string app_name = 1;
   uint32 replaces_id = 2;
   string app_icon = 3;
   string summary = 4;
   string body = 5;
-  repeated string actions = 6;
+  repeated Action actions = 6;
   int32 expire_timeout = 7;
 }
 

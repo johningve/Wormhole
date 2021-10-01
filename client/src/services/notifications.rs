@@ -1,4 +1,5 @@
 use futures::TryFutureExt;
+use rpc::notifications::Action;
 use rpc::notifications::{
     notifications_client::NotificationsClient, notify_response::Event, CloseNotificationRequest,
     NotifyRequest,
@@ -72,7 +73,14 @@ impl Notifications {
             app_icon: notification.app_icon.into(),
             summary: notification.summary.into(),
             body: notification.body.into(),
-            actions: notification.actions.iter().map(|s| s.to_string()).collect(),
+            actions: notification
+                .actions
+                .chunks_exact(2)
+                .map(|s| Action {
+                    name: s[0].to_string(),
+                    label: s[1].to_string(),
+                })
+                .collect(),
             expire_timeout: notification.expire_timeout,
         };
 
