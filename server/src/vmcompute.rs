@@ -10,6 +10,7 @@ mod hcs {
     use serde::Deserialize;
     use uuid::Uuid;
     use widestring::{WideCStr, WideCString};
+    use windows::Handle;
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
@@ -23,7 +24,7 @@ mod hcs {
 
     pub fn enumerate_compute_systems(query: &str) -> std::io::Result<Vec<ComputeSystem>> {
         let module = unsafe { LoadLibraryA("vmcompute.dll") };
-        if module.is_null() {
+        if module.is_invalid() {
             return Err(std::io::Error::last_os_error());
         }
         defer! {

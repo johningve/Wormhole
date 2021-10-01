@@ -9,6 +9,5 @@ edition = "2018"
 prost = "0.8"
 tonic = "0.5"
 
-
 [build-dependencies]
 tonic-build = "0.5"

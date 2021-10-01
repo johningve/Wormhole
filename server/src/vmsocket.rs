@@ -51,7 +51,7 @@ impl HyperVSocket {
 
         // HV_PROTOCOL_RAW is defined as 1
         let fd = unsafe { socket(AF_HYPERV as _, SOCK_STREAM as _, 1) };
-        if fd.0 == INVALID_SOCKET as usize {
+        if fd == INVALID_SOCKET {
             return Err(winsock_error());
         }
         let _guard = scopeguard::guard((), |_| {
@@ -82,7 +82,7 @@ impl HyperVSocket {
 
     pub fn accept(&self) -> std::io::Result<TcpStream> {
         let fd = unsafe { accept(self.0, std::ptr::null_mut(), std::ptr::null_mut()) };
-        if fd.0 == INVALID_SOCKET as usize {
+        if fd == INVALID_SOCKET {
             return Err(winsock_error());
         }
 

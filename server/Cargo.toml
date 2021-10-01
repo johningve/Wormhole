@@ -10,7 +10,7 @@ edition = "2018"
 bindings = { path = "bindings" }
 uuid = { version = "0.8", features = ["serde"] }
 widestring = "0.4"
-windows = "0.19"
+windows = "0.21"
 xml-rs = "0.8"
 
 # dependencies for tonic
