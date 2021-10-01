@@ -46,16 +46,19 @@ impl ToastHelper {
         );
 
         let mut actions = String::from("<actions>");
+        let mut launch_arg = "";
 
         // TODO: the freedesktop notifications spec sends actions in a vector, these should really be paired up since
         // each even index is an action name, and every odd index is a display name.
-        for action in notify_request.actions.chunks(2) {
-            if action.len() == 2 {
+        for action in notify_request.actions {
+            if action.name == "default" {
+                launch_arg = "default";
+            } else {
                 actions.push_str(
                     format!(
                         r#"<action content="{content}" arguments="{action}" />"#,
-                        content = escape_str_attribute(&action[1]),
-                        action = escape_str_attribute(&action[0])
+                        content = escape_str_attribute(&action.label),
+                        action = escape_str_attribute(&action.name)
                     )
                     .as_str(),
                 );
@@ -65,13 +68,14 @@ impl ToastHelper {
 
         let toast_xml = XmlDocument::new()?;
         let xml = format!(
-            r#"<toast duration="long">
+            r#"<toast duration="long" launch="{launch}">
                 {visual}
                 <audio src="ms-winsoundevent:Notification.Default" />
                 <!-- <audio silent="true" /> -->
                 <!-- See https://docs.microsoft.com/en-us/windows/uwp/design/shell/tiles-and-notifications/toast-pending-update?tabs=xml for possible actions -->
                 {actions}
             </toast>"#,
+            launch = launch_arg,
             visual = visual,
             actions = actions
         );
