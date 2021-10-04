@@ -36,6 +36,20 @@ impl Notifications {
     }
 }
 
+fn get_icon_path(icon: &str) -> Option<String> {
+    if let Ok(md) = std::fs::metadata(icon) {
+        if md.is_file() {
+            return Some(icon.to_string());
+        }
+    }
+
+    if let Some(Ok(icon)) = linicon::lookup_icon(icon).next() {
+        return Some(icon.path.to_string_lossy().to_string());
+    }
+
+    None
+}
+
 #[dbus_interface(name = "org.freedesktop.Notifications")]
 impl Notifications {
     async fn close_notification(&self, id: u32) {
@@ -70,7 +84,7 @@ impl Notifications {
         let request = NotifyRequest {
             app_name: notification.app_name.into(),
             replaces_id: notification.replaces_id,
-            app_icon: notification.app_icon.into(),
+            image_path: get_icon_path(notification.app_icon).unwrap_or_default(),
             summary: notification.summary.into(),
             body: notification.body.into(),
             actions: notification
