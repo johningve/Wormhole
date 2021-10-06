@@ -25,17 +25,39 @@ use bindings::{
 //https://social.msdn.microsoft.com/Forums/Windows/en-US/99e0d4bd-07cb-4ebd-8c92-c44ac6e7e5de/toast-notification-dismissed-event-handler-not-called-every-time?forum=windowsgeneraldevelopmentissues
 pub use windows::Error;
 
+use crate::wslpath;
+
 pub struct ToastHelper {
     toast: ToastNotification,
 }
 
 impl ToastHelper {
-    pub fn from(notify_request: NotifyRequest, tag: &str) -> windows::Result<ToastHelper> {
+    pub fn from(
+        notify_request: &NotifyRequest,
+        tag: &str,
+        distro: &str,
+    ) -> windows::Result<ToastHelper> {
+        let image_path = wslpath::to_windows(distro, &notify_request.image_path);
+        log::debug!("{:#?}", notify_request);
+
+        let image = if image_path.exists() {
+            log::debug!("using image: {}", image_path.as_os_str().to_string_lossy());
+            format!(
+                r#"<image placement="appLogoOverride" hint-crop="circle" src="file://{}" />"#,
+                escape_str_pcdata(&image_path.as_os_str().to_string_lossy().replace('\\', "/")),
+            )
+        } else {
+            String::new()
+        };
+
+        log::debug!("image: {}", image);
+
         let visual = format!(
             r#"<visual>
                 <binding template="ToastGeneric">
                     <text id="1">{heading}</text>
                     <text id="2">{content}</text>
+                    {image}
                     <!-- <image placement="appLogoOverride" hint-crop="circle" src="file:///c:/path_to_image_above_toast.jpg" alt="alt text" /> -->
                     <!-- <image placement="Hero" src="file:///C:/path_to_image_in_toast.jpg" alt="alt text2" /> -->
                     <!-- <image id="1" src="file:///..." alt="another_image" /> -->
@@ -43,6 +65,7 @@ impl ToastHelper {
             </visual>"#,
             heading = escape_str_pcdata(&notify_request.summary),
             content = escape_str_pcdata(&notify_request.body),
+            image = image,
         );
 
         let mut actions = String::from("<actions>");
@@ -50,7 +73,7 @@ impl ToastHelper {
 
         // TODO: the freedesktop notifications spec sends actions in a vector, these should really be paired up since
         // each even index is an action name, and every odd index is a display name.
-        for action in notify_request.actions {
+        for action in &notify_request.actions {
             if action.name == "default" {
                 launch_arg = "default";
             } else {

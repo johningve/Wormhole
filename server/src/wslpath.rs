@@ -1,30 +1,31 @@
 use bindings::Windows::Win32::Storage::FileSystem::GetLogicalDrives;
-use std::path::{Component, Path, PathBuf};
-use std::os::windows::ffi::OsStrExt;
+use regex::Regex;
+use std::path::PathBuf;
 
-pub fn to_windows(wsl_path: impl AsRef<Path>) -> PathBuf {
-    let wsl_path = wsl_path.as_ref();
-    let mut components = wsl_path.components();
+pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
     let mut win_path = PathBuf::new();
 
-    if wsl_path.starts_with("/mnt") {
-        if let Some(dir) = wsl_path.components().nth(2) {
-            let d = dir.as_os_str().encode_wide().nth(0).unwrap();
+    if wsl_path.is_empty() {
+        return win_path;
+    }
+
+    let mnt_reg = Regex::new(r"^/mnt/([A-Za-z])(?:/|$)").unwrap();
+
+    if let Some(captures) = mnt_reg.captures(wsl_path) {
+        let letter = captures[1].chars().next().unwrap();
+        if LogicalDrives::get().is_present(letter as _) {
+            win_path.push(PathBuf::from(format!("{}:\\", letter.to_ascii_uppercase())));
+            wsl_path = &wsl_path[captures.get(0).unwrap().end()..];
         }
+    } else {
+        win_path.push(PathBuf::from(format!("\\\\wsl.localhost\\{}", distro)));
     }
 
-
-    if components.next() != Some(Component::RootDir) {
-
+    for part in wsl_path.split('/') {
+        win_path.push(part);
     }
 
-    if (let Some(dir) = it.next()) == "/mnt" {
-        path = path.strip_prefix("/mnt/").unwrap();
-        let letter = path.components()
-        let drives = LogicalDrives(unsafe { GetLogicalDrives() });
-        if drives.is_present(letter) {}
-    }
-    path.to_owned()
+    win_path
 }
 
 struct LogicalDrives(u32);
@@ -51,8 +52,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_present() {
+    fn test_logical_drives_is_present() {
         assert!(LogicalDrives(4).is_present(b'c'));
         assert!(LogicalDrives(1).is_present(b'A'));
+    }
+
+    #[test]
+    fn test_wsl_path_to_windows() {
+        assert_eq!(
+            to_windows("Ubuntu", "/mnt/asdf/foo.txt"),
+            PathBuf::from("\\\\wsl.localhost\\Ubuntu\\mnt\\asdf\\foo.txt")
+        );
+        assert_eq!(
+            to_windows("Ubuntu", "/mnt/c/Users/"),
+            PathBuf::from("C:\\Users")
+        );
     }
 }

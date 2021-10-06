@@ -729,6 +729,7 @@ dependencies = [
  "futures",
  "log",
  "prost",
+ "regex",
  "rpc",
  "scopeguard",
  "serde",

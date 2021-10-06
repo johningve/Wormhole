@@ -6,6 +6,7 @@ use rpc::notifications::{
 use std::{collections::BTreeMap, sync::Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tonic::codegen::http::request;
 
 use crate::toasthelper::ToastHelper;
 
@@ -40,8 +41,21 @@ impl Notifications for NotificationsService {
             tonic::Status::new(tonic::Code::Internal, err.to_string())
         };
 
-        let request = request.into_inner();
-        let toast = ToastHelper::from(request, &id.to_string()).map_err(err_to_status)?;
+        let distro_name = match request.metadata().get("wsl-distro-name") {
+            Some(name) => name
+                .to_str()
+                .map_err(|err| tonic::Status::new(tonic::Code::Internal, err.to_string()))?,
+            None => {
+                return Err(tonic::Status::new(
+                    tonic::Code::Internal,
+                    "missing distro name",
+                ));
+            }
+        };
+
+        let request = request.get_ref();
+        let toast =
+            ToastHelper::from(request, &id.to_string(), distro_name).map_err(err_to_status)?;
 
         let (tx, rx) = mpsc::unbounded_channel();
 
