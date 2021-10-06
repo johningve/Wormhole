@@ -16,6 +16,7 @@ pub fn build_ui(_app: &gtk::Application) -> impl IsA<gtk::Widget> {
     button.connect_clicked(|_| {
         let handle = notify_rust::Notification::new()
             .summary("Hello from Linux")
+            .icon("security-high")
             .body("This notification was sent from a Linux application using notify-rust.")
             .action("ok", "Ok")
             .action("default", "")

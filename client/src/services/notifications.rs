@@ -7,14 +7,17 @@ use rpc::notifications::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tonic::codegen::InterceptedService;
 use tonic::transport::Channel;
 use zbus::{dbus_interface, Connection};
 use zbus::{zvariant, SignalContext};
 use zvariant_derive::Type;
 
+use super::interceptor::DistroInterceptor;
+
 #[derive(Clone)]
 pub struct Notifications {
-    remote: NotificationsClient<Channel>,
+    remote: NotificationsClient<InterceptedService<Channel, DistroInterceptor>>,
 }
 
 impl Notifications {
@@ -28,7 +31,7 @@ impl Notifications {
         dbus_connection.object_server_mut().await.at(
             "/org/freedesktop/Notifications",
             Notifications {
-                remote: NotificationsClient::new(grpc_channel),
+                remote: NotificationsClient::with_interceptor(grpc_channel, DistroInterceptor {}),
             },
         )?;
 
@@ -36,15 +39,19 @@ impl Notifications {
     }
 }
 
-fn get_icon_path(icon: &str) -> Option<String> {
-    if let Ok(md) = std::fs::metadata(icon) {
+fn get_icon_path(icon_name: &str) -> Option<String> {
+    log::debug!("looking up icon: {}", icon_name);
+
+    if let Ok(md) = std::fs::metadata(icon_name) {
         if md.is_file() {
-            return Some(icon.to_string());
+            return Some(icon_name.to_string());
         }
     }
 
-    if let Some(Ok(icon)) = linicon::lookup_icon(icon).next() {
-        return Some(icon.path.to_string_lossy().to_string());
+    if let Some(Ok(icon)) = linicon::lookup_icon(icon_name).next() {
+        let icon_path = icon.path.to_string_lossy().to_string();
+        log::debug!("found icon for {}: {}", icon_name, icon_path);
+        return Some(icon_path);
     }
 
     None

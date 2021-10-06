@@ -3,7 +3,7 @@ use std::{convert::TryFrom, error::Error};
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use vmsocket::VmSocket;
-use zbus::{Connection, ConnectionBuilder};
+use zbus::ConnectionBuilder;
 
 mod services;
 mod vmsocket;
