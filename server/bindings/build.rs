@@ -6,6 +6,7 @@ fn main() {
             ToastDismissedEventArgs, ToastFailedEventArgs,
         },
         Windows::Win32::Networking::WinSock::*,
+        Windows::Win32::Storage::FileSystem::GetLogicalDrives,
         Windows::Win32::System::LibraryLoader::*,
         Windows::Win32::System::Memory::LocalFree,
     };

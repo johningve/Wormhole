@@ -6,6 +6,7 @@ mod services;
 mod toasthelper;
 mod vmcompute;
 mod vmsocket;
+mod wslpath;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
