@@ -36,15 +36,15 @@ impl ToastHelper {
         notify_request: &NotifyRequest,
         tag: &str,
         distro: &str,
-    ) -> windows::Result<ToastHelper> {
-        let image_path = wslpath::to_windows(distro, &notify_request.image_path);
+    ) -> anyhow::Result<ToastHelper> {
+        let image_path = wslpath::get_temp_copy(distro, &notify_request.image_path)?;
         log::debug!("{:#?}", notify_request);
 
         let image = if image_path.exists() {
             log::debug!("using image: {}", image_path.as_os_str().to_string_lossy());
             format!(
-                r#"<image placement="appLogoOverride" hint-crop="circle" src="file://{}" />"#,
-                escape_str_pcdata(&image_path.as_os_str().to_string_lossy().replace('\\', "/")),
+                r#"<image placement="appLogoOverride" src="file://{}" />"#,
+                escape_str_pcdata(&image_path.as_os_str().to_string_lossy()),
             )
         } else {
             String::new()

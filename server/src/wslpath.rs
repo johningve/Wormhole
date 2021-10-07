@@ -1,6 +1,8 @@
 use bindings::Windows::Win32::Storage::FileSystem::GetLogicalDrives;
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const WSL_DOMAIN: &str = "\\\\wsl.localhost";
 
 pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
     let mut win_path = PathBuf::new();
@@ -18,7 +20,8 @@ pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
             wsl_path = &wsl_path[captures.get(0).unwrap().end()..];
         }
     } else {
-        win_path.push(PathBuf::from(format!("\\\\wsl.localhost\\{}", distro)));
+        win_path.push(WSL_DOMAIN);
+        win_path.push(distro);
     }
 
     for part in wsl_path.split('/') {
@@ -26,6 +29,31 @@ pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
     }
 
     win_path
+}
+
+pub fn get_temp_copy(distro: &str, wsl_file_path: &str) -> std::io::Result<PathBuf> {
+    let win_src_path = to_windows(distro, wsl_file_path);
+
+    let mut network_share = PathBuf::from(WSL_DOMAIN);
+    network_share.push(distro);
+
+    if !win_src_path.starts_with(&network_share) {
+        return Ok(win_src_path);
+    }
+
+    let mut win_dest_path = std::env::temp_dir();
+    win_dest_path.push("WSLPortal");
+    win_dest_path.push(win_src_path.strip_prefix(&network_share).unwrap());
+
+    let src_metadata = std::fs::metadata(&win_src_path)?;
+    let dest_metadata = std::fs::metadata(&win_dest_path).ok();
+
+    if dest_metadata.is_none() || src_metadata.modified()? > dest_metadata.unwrap().modified()? {
+        std::fs::create_dir_all(win_dest_path.parent().unwrap())?;
+        std::fs::copy(&win_src_path, &win_dest_path)?;
+    }
+
+    Ok(win_dest_path)
 }
 
 struct LogicalDrives(u32);

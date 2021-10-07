@@ -54,8 +54,8 @@ impl Notifications for NotificationsService {
         };
 
         let request = request.get_ref();
-        let toast =
-            ToastHelper::from(request, &id.to_string(), distro_name).map_err(err_to_status)?;
+        let toast = ToastHelper::from(request, &id.to_string(), distro_name)
+            .map_err(|err| tonic::Status::new(tonic::Code::Internal, err.to_string()))?;
 
         let (tx, rx) = mpsc::unbounded_channel();
 
