@@ -70,9 +70,9 @@ impl Notifications {
             .unwrap();
     }
 
-    fn get_capabilities(&self) -> Vec<String> {
+    fn get_capabilities(&self) -> Vec<&str> {
         log::debug!("get_capabilities");
-        Vec::new()
+        vec!["actions", "body"]
     }
 
     fn get_server_information(&self) -> ServerInformation {
