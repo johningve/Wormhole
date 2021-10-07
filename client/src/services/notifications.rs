@@ -48,7 +48,7 @@ fn get_icon_path(icon_name: &str) -> Option<String> {
         }
     }
 
-    if let Some(Ok(icon)) = linicon::lookup_icon(icon_name).next() {
+    if let Some(Ok(icon)) = linicon::lookup_icon(icon_name).with_size(64).next() {
         let icon_path = icon.path.to_string_lossy().to_string();
         log::debug!("found icon for {}: {}", icon_name, icon_path);
         return Some(icon_path);
