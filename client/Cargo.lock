@@ -233,6 +233,7 @@ dependencies = [
  "rpc",
  "scopeguard",
  "serde",
+ "serde_repr",
  "tokio",
  "tonic",
  "tower",

@@ -32,6 +32,7 @@ zbus = "2.0.0-beta.7"
 zvariant = "2.9"
 zvariant_derive = "2.9"
 serde = "1.0"
+serde_repr = "0.1"
 
 # other
 scopeguard = "1.1.0"
