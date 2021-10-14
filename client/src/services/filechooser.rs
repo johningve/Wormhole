@@ -80,10 +80,10 @@ mod dbus {
     /// pattern.
     pub struct FileFilter(String, Vec<(FilterType, String)>);
 
-    impl Into<rpc::FileFilter> for FileFilter {
-        fn into(self) -> rpc::FileFilter {
+    impl From<FileFilter> for rpc::FileFilter {
+        fn from(val: FileFilter) -> Self {
             let mut entries = Vec::new();
-            for (filter_type, filter) in self.1 {
+            for (filter_type, filter) in val.1 {
                 entries.push(rpc::file_filter::FilterEntry {
                     r#type: Into::<rpc::FilterType>::into(filter_type) as _,
                     filter,
@@ -91,7 +91,7 @@ mod dbus {
             }
 
             rpc::FileFilter {
-                label: self.0,
+                label: val.0,
                 entries,
             }
         }
@@ -115,9 +115,9 @@ mod dbus {
         MimeType = 1,
     }
 
-    impl Into<rpc::FilterType> for FilterType {
-        fn into(self) -> rpc::FilterType {
-            match self {
+    impl From<FilterType> for rpc::FilterType {
+        fn from(val: FilterType) -> Self {
+            match val {
                 FilterType::GlobPattern => rpc::FilterType::GlobPattern,
                 FilterType::MimeType => rpc::FilterType::MimeType,
             }
@@ -137,17 +137,16 @@ mod dbus {
     /// Presents the user with a choice to select from or as a checkbox.
     pub struct Choice(String, String, Vec<(String, String)>, String);
 
-    impl Into<rpc::Choice> for Choice {
-        fn into(self) -> rpc::Choice {
+    impl From<Choice> for rpc::Choice {
+        fn from(val: Choice) -> Self {
             let mut choices = HashMap::new();
-            for (key, value) in self.2 {
+            for (key, value) in val.2 {
                 choices.insert(key, value);
             }
             rpc::Choice {
-                id: self.0,
-                label: self.1,
+                label: val.1,
                 choices,
-                initial_selection: self.3,
+                initial_selection: val.3,
             }
         }
     }
@@ -163,25 +162,25 @@ mod dbus {
         choices: Vec<Choice>,
     }
 
-    impl Into<rpc::OpenFileOptions> for OpenFileOptions {
-        fn into(self) -> rpc::OpenFileOptions {
+    impl From<OpenFileOptions> for rpc::OpenFileOptions {
+        fn from(val: OpenFileOptions) -> Self {
             let mut filters = Vec::new();
-            for f in self.filters {
+            for f in val.filters {
                 filters.push(f.into());
             }
 
-            let mut choices = Vec::new();
-            for c in self.choices {
-                choices.push(c.into());
+            let mut choices = HashMap::new();
+            for c in val.choices {
+                choices.insert(c.0.clone(), c.into());
             }
 
             rpc::OpenFileOptions {
-                accept_label: self.accept_label,
-                modal: self.modal,
-                multiple: self.multiple,
-                directory: self.directory,
+                accept_label: val.accept_label,
+                modal: val.modal,
+                multiple: val.multiple,
+                directory: val.directory,
                 filters,
-                current_filter: self.current_filter.map(|f| f.into()),
+                current_filter: val.current_filter.map(|f| f.into()),
                 choices,
             }
         }
@@ -205,7 +204,7 @@ mod dbus {
             Self {
                 uris: results.uris,
                 choices,
-                current_filter: results.current_filter.map(|f| FileFilter::from(f)),
+                current_filter: results.current_filter.map(FileFilter::from),
                 writable: results.writable,
             }
         }
