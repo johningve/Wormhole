@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package filechooser;
+
+service FileChooser {
+  rpc OpenFile(OpenFileRequest) returns (OpenFileResponse);
+}
+
+enum FilterType {
+  GlobPattern = 0;
+  MimeType = 1;
+}
+
+message FileFilter {
+  string label = 1;
+  message FilterEntry {
+    FilterType type = 1;
+    string filter = 2;
+  }
+  repeated FilterEntry entries = 2;
+}
+
+message Choice {
+  string id = 1;
+  string label = 2;
+  map<string, string> choices = 3;
+  string initial_selection = 4;
+}
+
+message OpenFileRequest {
+  string parent_window = 3;
+  string title = 4;
+  OpenFileOptions options = 5;
+}
+
+message OpenFileOptions {
+  optional string accept_label = 1;
+  optional bool modal = 2;
+  optional bool multiple = 3;
+  optional bool directory = 4;
+  repeated FileFilter filters = 5;
+  optional FileFilter current_filter = 6;
+  repeated Choice choices = 7;
+}
+
+message OpenFileResponse {
+  uint32 response = 1;
+  OpenFileResults results = 2;
+}
+
+message OpenFileResults {
+  repeated string uris = 1;
+  map<string, string> choices = 2;
+  optional FileFilter current_filter = 3;
+  optional bool writable = 4;
+}
