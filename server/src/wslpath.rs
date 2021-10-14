@@ -1,6 +1,6 @@
 use bindings::Windows::Win32::Storage::FileSystem::GetLogicalDrives;
 use regex::Regex;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const WSL_DOMAIN: &str = "\\\\wsl.localhost";
 
