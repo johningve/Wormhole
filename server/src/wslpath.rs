@@ -1,6 +1,7 @@
+use anyhow::bail;
 use bindings::Windows::Win32::Storage::FileSystem::GetLogicalDrives;
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf, Prefix};
 
 const WSL_DOMAIN: &str = "\\\\wsl.localhost";
 
@@ -29,6 +30,36 @@ pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
     }
 
     win_path
+}
+
+pub fn to_wsl(distro: &str, win_path: &Path) -> anyhow::Result<String> {
+    let mut wsl_path = String::new();
+    for component in win_path.components() {
+        match component {
+            Component::Prefix(pfx) => match pfx.kind() {
+                Prefix::Disk(letter) => {
+                    wsl_path.push_str(&format!("/mnt/{}", letter.to_ascii_lowercase() as char))
+                }
+                Prefix::UNC(server, share) => {
+                    if server.to_string_lossy() != "wsl.localhost"
+                        || share.to_string_lossy() != distro
+                    {
+                        bail!("network share not supported: {:?}", component);
+                    }
+                }
+                _ => bail!("unsupported path prefix: {:?}", component),
+            },
+            Component::RootDir => wsl_path.push('/'),
+            Component::Normal(c) => {
+                if !wsl_path.ends_with("/") {
+                    wsl_path.push('/');
+                }
+                wsl_path.push_str(&c.to_string_lossy());
+            }
+            _ => bail!("unsupported path component: {:?}", component),
+        }
+    }
+    Ok(wsl_path)
 }
 
 pub fn get_temp_copy(distro: &str, wsl_file_path: &str) -> std::io::Result<PathBuf> {
@@ -94,6 +125,22 @@ mod tests {
         assert_eq!(
             to_windows("Ubuntu", "/mnt/c/Users/"),
             PathBuf::from("C:\\Users")
+        );
+    }
+
+    #[test]
+    fn test_win_path_to_wsl() {
+        assert_eq!(
+            to_wsl("Ubuntu", &PathBuf::from("C:\\Users\\admin")).unwrap(),
+            "/mnt/c/Users/admin"
+        );
+        assert_eq!(
+            to_wsl(
+                "Ubuntu",
+                &PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\admin")
+            )
+            .unwrap(),
+            "/home/admin"
         );
     }
 }
