@@ -3,8 +3,8 @@ use uuid::Uuid;
 mod hcs {
 
     use bindings::Windows::Win32::System::{
+        Com::CoTaskMemFree,
         LibraryLoader::{FreeLibrary, GetProcAddress, LoadLibraryA},
-        Memory::LocalFree,
     };
     use scopeguard::defer;
     use serde::Deserialize;
@@ -47,8 +47,8 @@ mod hcs {
             return Err(std::io::Error::from_raw_os_error(hr));
         }
         defer! {
-            unsafe { LocalFree(compute_systems as _) };
-            unsafe { LocalFree(result as _) };
+            unsafe { CoTaskMemFree(compute_systems as _) };
+            unsafe { CoTaskMemFree(result as _) };
         }
 
         let compute_systems = if compute_systems.is_null() {
