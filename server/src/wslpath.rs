@@ -51,7 +51,7 @@ pub fn to_wsl(distro: &str, win_path: &Path) -> anyhow::Result<String> {
             },
             Component::RootDir => wsl_path.push('/'),
             Component::Normal(c) => {
-                if !wsl_path.ends_with("/") {
+                if !wsl_path.ends_with('/') {
                     wsl_path.push('/');
                 }
                 wsl_path.push_str(&c.to_string_lossy());

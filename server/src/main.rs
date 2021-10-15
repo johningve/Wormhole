@@ -4,6 +4,7 @@ use tonic::transport::Server;
 
 mod services;
 mod toasthelper;
+mod util;
 mod vmcompute;
 mod vmsocket;
 mod wslpath;

@@ -3,7 +3,7 @@ syntax = "proto3";
 package filechooser;
 
 service FileChooser {
-  rpc OpenFile(OpenFileRequest) returns (OpenFileResponse);
+  rpc OpenFile(OpenFileRequest) returns (OpenFileResults);
 }
 
 enum FilterType {
@@ -40,11 +40,6 @@ message OpenFileOptions {
   repeated FileFilter filters = 5;
   optional FileFilter current_filter = 6;
   map<string, Choice> choices = 7;
-}
-
-message OpenFileResponse {
-  uint32 response = 1;
-  OpenFileResults results = 2;
 }
 
 message OpenFileResults {

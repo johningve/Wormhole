@@ -6,7 +6,6 @@ use rpc::notifications::{
 use std::{collections::BTreeMap, sync::Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tonic::codegen::http::request;
 
 use crate::toasthelper::ToastHelper;
 

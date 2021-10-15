@@ -7,7 +7,9 @@ fn main() {
             ToastDismissedEventArgs, ToastFailedEventArgs,
         },
         Windows::Win32::UI::HiDpi::SetProcessDpiAwareness,
-        Windows::Win32::UI::Shell::{IFileOpenDialog, IFileSaveDialog, IFileDialogCustomize, IShellItem, IShellItemArray},
+        Windows::Win32::UI::Shell::{
+            _FILEOPENDIALOGOPTIONS, IFileOpenDialog, IFileSaveDialog, IFileDialogCustomize, IShellItem, IShellItemArray,
+        },
         Windows::Win32::Storage::FileSystem::GetLogicalDrives,
         Windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, CoTaskMemFree},
         Windows::Win32::System::LibraryLoader::*,
