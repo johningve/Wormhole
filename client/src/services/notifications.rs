@@ -35,6 +35,8 @@ impl Notifications {
             },
         )?;
 
+        log::info!("org.freedesktop.Notifications server enabled");
+
         Ok(())
     }
 }

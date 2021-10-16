@@ -11,16 +11,14 @@ pub struct FileChooser {
 
 impl FileChooser {
     pub async fn init(grpc_channel: Channel, dbus_connection: &Connection) -> zbus::Result<()> {
-        dbus_connection
-            .request_name("org.freedesktop.impl.portal.FileChooser")
-            .await?;
-
         dbus_connection.object_server_mut().await.at(
             super::PORTAL_PATH,
             FileChooser {
                 remote: FileChooserClient::with_interceptor(grpc_channel, DistroInterceptor {}),
             },
         )?;
+
+        log::info!("FileChooser portal enabled.");
 
         Ok(())
     }
@@ -54,16 +52,35 @@ impl FileChooser {
         {
             Ok(response) => {
                 let result = response.into_inner();
-                (
-                    result.response,
-                    dbus::OpenFileResults::from(result.results.unwrap_or_default()),
-                )
+                (0, dbus::OpenFileResults::from(result))
             }
             Err(e) => {
                 log::error!("open_file errored: {}", e);
                 (1, dbus::OpenFileResults::default())
             }
         }
+    }
+
+    async fn save_file(
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        parent_window: &str,
+        title: &str,
+        options: dbus::SaveFileOptions,
+    ) -> (u32, dbus::SaveFileResults) {
+        (0, dbus::SaveFileResults::default())
+    }
+
+    async fn save_files(
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        parent_window: &str,
+        title: &str,
+        options: dbus::SaveFilesOptions,
+    ) -> (u32, dbus::SaveFilesResults) {
+        (0, dbus::SaveFilesResults::default())
     }
 }
 
@@ -157,20 +174,20 @@ mod dbus {
         modal: Option<bool>,
         multiple: Option<bool>,
         directory: Option<bool>,
-        filters: Vec<FileFilter>,
+        filters: Option<Vec<FileFilter>>,
         current_filter: Option<FileFilter>,
-        choices: Vec<Choice>,
+        choices: Option<Vec<Choice>>,
     }
 
     impl From<OpenFileOptions> for rpc::OpenFileOptions {
         fn from(val: OpenFileOptions) -> Self {
             let mut filters = Vec::new();
-            for f in val.filters {
+            for f in val.filters.unwrap_or_default() {
                 filters.push(f.into());
             }
 
             let mut choices = HashMap::new();
-            for c in val.choices {
+            for c in val.choices.unwrap_or_default() {
                 choices.insert(c.0.clone(), c.into());
             }
 
@@ -208,5 +225,41 @@ mod dbus {
                 writable: results.writable,
             }
         }
+    }
+
+    #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+    pub struct SaveFileOptions {
+        accept_label: Option<String>,
+        modal: Option<bool>,
+        multiple: Option<bool>,
+        filters: Vec<FileFilter>,
+        current_filter: Option<FileFilter>,
+        choices: Vec<Choice>,
+        current_name: Option<String>,
+        current_folder: Vec<u8>,
+        current_file: Vec<u8>,
+    }
+
+    #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+    pub struct SaveFileResults {
+        uris: Vec<String>,
+        choices: Vec<(String, String)>,
+        current_filter: Option<FileFilter>,
+    }
+
+    #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+    pub struct SaveFilesOptions {
+        handle_token: Option<String>,
+        accept_label: Option<String>,
+        modal: Option<bool>,
+        choices: Vec<Choice>,
+        current_folder: Vec<u8>,
+        current_file: Vec<Vec<u8>>,
+    }
+
+    #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+    pub struct SaveFilesResults {
+        uris: Vec<String>,
+        choices: Vec<(String, String)>,
     }
 }

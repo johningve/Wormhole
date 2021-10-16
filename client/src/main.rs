@@ -32,6 +32,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     };
 
+    dbus_connection
+        .request_name("org.freedesktop.impl.portal.desktop.wsl")
+        .await?;
+
     services::init_all(grpc_channel, &dbus_connection).await?;
 
     handle.await?;
