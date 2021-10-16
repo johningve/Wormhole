@@ -1,6 +1,15 @@
-use rpc::notifications::notifications_server::NotificationsServer;
+use bindings::Windows::Win32::{
+    System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
+    UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
+};
+use rpc::{
+    filechooser::file_chooser_server::FileChooserServer,
+    notifications::notifications_server::NotificationsServer,
+};
 use services::notifications::NotificationsService;
 use tonic::transport::Server;
+
+use crate::services::filechooser::FileChooserService;
 
 mod services;
 mod toasthelper;
@@ -13,7 +22,8 @@ mod wslpath;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let notifications = NotificationsService::default();
+    unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) }.unwrap();
+    unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
 
     let incoming = async_stream::stream! {
         let listener = vmsocket::HyperVSocket::bind(
@@ -27,7 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     Server::builder()
-        .add_service(NotificationsServer::new(notifications))
+        .add_service(NotificationsServer::new(NotificationsService::default()))
+        .add_service(FileChooserServer::new(FileChooserService::default()))
         .serve_with_incoming(incoming)
         .await?;
 

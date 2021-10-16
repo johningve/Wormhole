@@ -21,6 +21,7 @@ use crate::{util, wslpath};
 const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";
 const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
 
+#[derive(Default)]
 pub struct FileChooserService {}
 
 impl FileChooserService {
@@ -64,7 +65,7 @@ impl FileChooserService {
             let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
             let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
             unsafe { CoTaskMemFree(path_raw.0 as _) };
-            uris.push(wslpath::to_wsl(distro, Path::new(&path))?);
+            uris.push(String::from("file://") + &wslpath::to_wsl(distro, Path::new(&path))?);
         }
 
         let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
