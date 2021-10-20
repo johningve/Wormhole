@@ -4,13 +4,14 @@ use bindings::Windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
     UI::Shell::{
-        IFileDialogCustomize, IFileOpenDialog, COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT,
-        FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+        IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog, COMDLG_FILTERSPEC,
+        FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
 use regex::Regex;
 use rpc::filechooser::{
     file_chooser_server::FileChooser, Choice, FileFilter, OpenFileRequest, OpenFileResults,
+    SaveFileRequest, SaveFileResults,
 };
 use widestring::WideCStr;
 use windows::Guid;
@@ -81,6 +82,46 @@ impl FileChooserService {
             choices,
             current_filter: Some(current_filter.clone()),
             writable: Some(true),
+        })
+    }
+
+    fn save_file_sync(distro: &str, request: SaveFileRequest) -> anyhow::Result<SaveFileResults> {
+        let options = request.options.unwrap_or_default();
+
+        let dialog: IFileSaveDialog =
+            unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
+
+        unsafe { dialog.SetTitle(request.title) }?;
+
+        // file_types must not be dropped before the dialog itself is dropped.
+        let file_types = FileTypes::from(&options.filters);
+        let (count, ptr) = file_types.get_ptr();
+        // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
+        unsafe { dialog.SetFileTypes(count, ptr) }?;
+
+        let id_mapping = Self::add_choices(dialog.cast()?, &options.choices)?;
+
+        let item = unsafe {
+            dialog.Show(None)?;
+            dialog.GetResult()?
+        };
+
+        let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+        let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+        unsafe { CoTaskMemFree(path_raw.0 as _) };
+        let uri = String::from("file://") + &wslpath::to_wsl(distro, Path::new(&path))?;
+
+        let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
+
+        let current_filter =
+            &options.filters[file_types.indices[unsafe { dialog.GetFileTypeIndex() }? as usize]];
+
+        drop(dialog);
+
+        Ok(SaveFileResults {
+            uris: vec![uri],
+            choices,
+            current_filter: Some(current_filter.clone()),
         })
     }
 
@@ -251,6 +292,20 @@ impl FileChooser for FileChooserService {
         let request = request.into_inner();
 
         tokio::task::spawn_blocking(move || Self::open_file_sync(&distro_name, request))
+            .await
+            .map_err(util::map_to_status)
+            .and_then(|r| r.map_err(util::map_to_status))
+            .map(tonic::Response::new)
+    }
+
+    async fn save_file(
+        &self,
+        request: tonic::Request<SaveFileRequest>,
+    ) -> Result<tonic::Response<SaveFileResults>, tonic::Status> {
+        let distro_name = util::get_distro_name(&request)?;
+        let request = request.into_inner();
+
+        tokio::task::spawn_blocking(move || Self::save_file_sync(&distro_name, request))
             .await
             .map_err(util::map_to_status)
             .and_then(|r| r.map_err(util::map_to_status))
