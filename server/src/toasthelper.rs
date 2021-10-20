@@ -126,7 +126,7 @@ impl ToastHelper {
     pub fn on_dismissed(&self, callback: impl Fn() + 'static) -> windows::Result<()> {
         self.toast
             .Dismissed(TypedEventHandler::new(move |_, result| {
-                if let Some(result) = result {
+                if let Some(_result) = result {
                     // let args = result.cast::<ToastDismissedEventArgs>()?;
                     callback();
                 }
