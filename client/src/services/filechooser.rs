@@ -1,4 +1,4 @@
-use rpc::filechooser::{file_chooser_client::FileChooserClient, OpenFileRequest};
+use rpc::filechooser::{file_chooser_client::FileChooserClient, OpenFileRequest, SaveFileRequest};
 use tonic::{codegen::InterceptedService, transport::Channel};
 use zbus::{dbus_interface, Connection};
 use zvariant::OwnedObjectPath;
@@ -69,7 +69,31 @@ impl FileChooser {
         title: &str,
         options: dbus::SaveFileOptions,
     ) -> (u32, dbus::SaveFileResults) {
-        (0, dbus::SaveFileResults::default())
+        log::debug!("save_file called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
+
+        match self
+            .remote
+            .save_file(tonic::Request::new(SaveFileRequest {
+                parent_window: parent_window.to_string(),
+                title: title.to_string(),
+                options: Some(options.into()),
+            }))
+            .await
+        {
+            Ok(response) => {
+                let result = response.into_inner();
+                (0, dbus::SaveFileResults::from(result))
+            }
+            Err(e) => {
+                log::error!("open_file errored: {}", e);
+                (1, dbus::SaveFileResults::default())
+            }
+        }
     }
 
     async fn save_files(
@@ -232,12 +256,37 @@ mod dbus {
         accept_label: Option<String>,
         modal: Option<bool>,
         multiple: Option<bool>,
-        filters: Vec<FileFilter>,
+        filters: Option<Vec<FileFilter>>,
         current_filter: Option<FileFilter>,
-        choices: Vec<Choice>,
+        choices: Option<Vec<Choice>>,
         current_name: Option<String>,
-        current_folder: Vec<u8>,
-        current_file: Vec<u8>,
+        current_folder: Option<Vec<u8>>,
+        current_file: Option<Vec<u8>>,
+    }
+
+    impl From<SaveFileOptions> for rpc::SaveFileOptions {
+        fn from(options: SaveFileOptions) -> Self {
+            let mut filters = Vec::new();
+            for f in options.filters.unwrap_or_default() {
+                filters.push(f.into());
+            }
+
+            let mut choices = HashMap::new();
+            for c in options.choices.unwrap_or_default() {
+                choices.insert(c.0.clone(), c.into());
+            }
+
+            Self {
+                accept_label: options.accept_label,
+                modal: options.modal,
+                filters,
+                current_filter: options.current_filter.map(|f| f.into()),
+                choices,
+                current_name: options.current_name,
+                current_folder: options.current_folder,
+                current_file: options.current_file,
+            }
+        }
     }
 
     #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
@@ -245,6 +294,21 @@ mod dbus {
         uris: Vec<String>,
         choices: Vec<(String, String)>,
         current_filter: Option<FileFilter>,
+    }
+
+    impl From<rpc::SaveFileResults> for SaveFileResults {
+        fn from(results: rpc::SaveFileResults) -> Self {
+            let mut choices = Vec::new();
+            for c in results.choices {
+                choices.push(c);
+            }
+
+            Self {
+                uris: results.uris,
+                choices,
+                current_filter: results.current_filter.map(FileFilter::from),
+            }
+        }
     }
 
     #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]

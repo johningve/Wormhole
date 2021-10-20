@@ -53,7 +53,7 @@ message OpenFileResults {
 message SaveFileRequest {
   string parent_window = 3;
   string title = 4;
-  OpenFileOptions options = 5;
+  SaveFileOptions options = 5;
 }
 
 message SaveFileOptions {
