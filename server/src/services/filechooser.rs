@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, str::Chars};
 
 use bindings::Windows::Win32::{
     Foundation::PWSTR,
@@ -8,6 +8,7 @@ use bindings::Windows::Win32::{
         FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
+use regex::Regex;
 use rpc::filechooser::{
     file_chooser_server::FileChooser, Choice, FileFilter, OpenFileRequest, OpenFileResults,
 };
@@ -139,6 +140,28 @@ impl FileChooserService {
     }
 }
 
+fn glob_patter_to_filter(glob_pattern: &str) -> String {
+    let re = Regex::new(r"\[(\p{alpha}{2})\]").unwrap();
+    let mut filter = String::from(glob_pattern);
+
+    // need to reverse, otherwise the indices will get messed up
+    for capture in re
+        .captures_iter(glob_pattern)
+        .collect::<Vec<_>>() // need to collect to a vec before we can reverse
+        .iter()
+        .rev()
+    {
+        let mut chars = capture.get(1).unwrap().as_str().chars();
+        let first = chars.next().unwrap().to_lowercase().to_string();
+        let second = chars.next().unwrap().to_lowercase().to_string();
+        if first == second {
+            filter.replace_range(capture.get(0).unwrap().range(), &first);
+        }
+    }
+
+    filter
+}
+
 struct FileTypes {
     // storage for the wide strings
     _wstrings: Vec<Vec<u16>>,
@@ -160,7 +183,7 @@ impl From<&Vec<FileFilter>> for FileTypes {
                         if !filter_spec.is_empty() {
                             filter_spec.push(';');
                         }
-                        filter_spec.push_str(&filter_entry.filter);
+                        filter_spec.push_str(&glob_patter_to_filter(&filter_entry.filter));
                     }
                     rpc::filechooser::FilterType::MimeType => {
                         if let Some(extensions) =
@@ -170,7 +193,7 @@ impl From<&Vec<FileFilter>> for FileTypes {
                                 if !filter_spec.is_empty() {
                                     filter_spec.push(';');
                                 }
-                                filter_spec.push_str(extension);
+                                filter_spec.push_str(&(String::from("*.") + *extension));
                             }
                         }
                     }
