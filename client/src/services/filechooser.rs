@@ -1,4 +1,6 @@
-use rpc::filechooser::{file_chooser_client::FileChooserClient, OpenFileRequest, SaveFileRequest};
+use rpc::filechooser::{
+    file_chooser_client::FileChooserClient, OpenFileRequest, SaveFileRequest, SaveFilesRequest,
+};
 use tonic::{codegen::InterceptedService, transport::Channel};
 use zbus::{dbus_interface, Connection};
 use zvariant::OwnedObjectPath;
@@ -104,7 +106,31 @@ impl FileChooser {
         title: &str,
         options: dbus::SaveFilesOptions,
     ) -> (u32, dbus::SaveFilesResults) {
-        (0, dbus::SaveFilesResults::default())
+        log::debug!("save_files called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
+
+        match self
+            .remote
+            .save_files(tonic::Request::new(SaveFilesRequest {
+                parent_window: parent_window.to_string(),
+                title: title.to_string(),
+                options: Some(options.into()),
+            }))
+            .await
+        {
+            Ok(response) => {
+                let result = response.into_inner();
+                (0, dbus::SaveFilesResults::from(result))
+            }
+            Err(e) => {
+                log::error!("open_file errored: {}", e);
+                (1, dbus::SaveFilesResults::default())
+            }
+        }
     }
 }
 
@@ -320,14 +346,52 @@ mod dbus {
         handle_token: Option<String>,
         accept_label: Option<String>,
         modal: Option<bool>,
-        choices: Vec<Choice>,
-        current_folder: Vec<u8>,
-        current_file: Vec<Vec<u8>>,
+        choices: Option<Vec<Choice>>,
+        current_folder: Option<Vec<u8>>,
+        files: Option<Vec<Vec<u8>>>,
+    }
+
+    impl From<SaveFilesOptions> for rpc::SaveFilesOptions {
+        fn from(options: SaveFilesOptions) -> Self {
+            let mut files = Vec::new();
+            for f in options.files.unwrap_or_default() {
+                files.push(String::from_utf8_lossy(&f).into_owned());
+            }
+
+            let mut choices = HashMap::new();
+            for c in options.choices.unwrap_or_default() {
+                choices.insert(c.0.clone(), c.into());
+            }
+
+            Self {
+                accept_label: options.accept_label,
+                modal: options.modal,
+                choices,
+                current_folder: options
+                    .current_folder
+                    .map(|f| String::from_utf8_lossy(&f).into_owned()),
+                files,
+            }
+        }
     }
 
     #[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
     pub struct SaveFilesResults {
         uris: Vec<String>,
         choices: Vec<(String, String)>,
+    }
+
+    impl From<rpc::SaveFilesResults> for SaveFilesResults {
+        fn from(results: rpc::SaveFilesResults) -> Self {
+            let mut choices = Vec::new();
+            for c in results.choices {
+                choices.push(c);
+            }
+
+            Self {
+                uris: results.uris,
+                choices,
+            }
+        }
     }
 }
