@@ -283,8 +283,12 @@ mod dbus {
                 current_filter: options.current_filter.map(|f| f.into()),
                 choices,
                 current_name: options.current_name,
-                current_folder: options.current_folder,
-                current_file: options.current_file,
+                current_folder: options
+                    .current_folder
+                    .map(|f| String::from_utf8_lossy(&f).into_owned()),
+                current_file: options
+                    .current_file
+                    .map(|f| String::from_utf8_lossy(&f).into_owned()),
             }
         }
     }
