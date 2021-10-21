@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    ffi::OsStr,
-    fs,
-    mem::MaybeUninit,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, mem::MaybeUninit, path::Path};
 
 use bindings::Windows::Win32::{
     Foundation::PWSTR,
