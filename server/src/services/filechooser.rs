@@ -1,11 +1,12 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, mem::MaybeUninit, path::Path};
 
 use bindings::Windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
     UI::Shell::{
-        IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog, COMDLG_FILTERSPEC,
-        FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+        IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog, IShellItem,
+        SHCreateItemFromParsingName, ShellItem, COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT,
+        FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
 use regex::Regex;
@@ -92,6 +93,22 @@ impl FileChooserService {
             unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(request.title) }?;
+
+        let folder_item: Option<IShellItem>;
+
+        if let Some(folder) = options.current_folder {
+            unsafe {
+                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
+                SHCreateItemFromParsingName(
+                    wslpath::to_windows(distro, &folder).as_os_str(),
+                    None,
+                    &ShellItem,
+                    item.as_mut_ptr() as _,
+                )?;
+                folder_item = Some(item.assume_init());
+                dialog.SetFolder(folder_item.unwrap())?;
+            }
+        }
 
         // file_types must not be dropped before the dialog itself is dropped.
         let file_types = FileTypes::from(&options.filters);

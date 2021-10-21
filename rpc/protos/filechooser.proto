@@ -63,8 +63,8 @@ message SaveFileOptions {
   optional FileFilter current_filter = 6;
   map<string, Choice> choices = 7;
   optional string current_name = 8;
-  optional bytes current_folder = 9;
-  optional bytes current_file = 10;
+  optional string current_folder = 9;
+  optional string current_file = 10;
 }
 
 message SaveFileResults {

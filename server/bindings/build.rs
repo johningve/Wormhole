@@ -9,6 +9,7 @@ fn main() {
         Windows::Win32::UI::HiDpi::SetProcessDpiAwareness,
         Windows::Win32::UI::Shell::{
             _FILEOPENDIALOGOPTIONS, IFileOpenDialog, IFileSaveDialog, IFileDialogCustomize, IShellItem, IShellItemArray,
+            ShellItem, SHCreateItemFromParsingName,
         },
         Windows::Win32::Storage::FileSystem::GetLogicalDrives,
         Windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, CoTaskMemFree},
