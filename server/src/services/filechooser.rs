@@ -1,4 +1,10 @@
-use std::{collections::HashMap, mem::MaybeUninit, path::Path};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    fs,
+    mem::MaybeUninit,
+    path::{Path, PathBuf},
+};
 
 use bindings::Windows::Win32::{
     Foundation::PWSTR,
@@ -12,7 +18,7 @@ use bindings::Windows::Win32::{
 use regex::Regex;
 use rpc::filechooser::{
     file_chooser_server::FileChooser, Choice, FileFilter, OpenFileRequest, OpenFileResults,
-    SaveFileRequest, SaveFileResults,
+    SaveFileRequest, SaveFileResults, SaveFilesRequest, SaveFilesResults,
 };
 use widestring::WideCStr;
 use windows::Guid;
@@ -184,6 +190,64 @@ impl FileChooserService {
             choices,
             current_filter,
         })
+    }
+
+    fn save_files_sync(
+        distro: &str,
+        request: SaveFilesRequest,
+    ) -> anyhow::Result<SaveFilesResults> {
+        let options = request.options.unwrap_or_default();
+
+        let dialog: IFileOpenDialog =
+            unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
+
+        unsafe { dialog.SetTitle(request.title) }?;
+
+        if let Some(accept_label) = &options.accept_label {
+            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
+        }
+
+        let folder_item: Option<IShellItem>;
+
+        if let Some(folder) = &options.current_folder {
+            unsafe {
+                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
+                SHCreateItemFromParsingName(
+                    wslpath::to_windows(distro, folder).as_os_str(),
+                    None,
+                    &Guid::from(IID_SHELL_ITEM),
+                    item.as_mut_ptr() as _,
+                )?;
+                folder_item = Some(item.assume_init());
+                dialog.SetFolder(folder_item.unwrap())?;
+            }
+        }
+
+        let id_mapping = Self::add_choices(dialog.cast()?, &options.choices)?;
+
+        let folder_item = unsafe {
+            dialog.Show(None)?;
+            dialog.GetResult()?
+        };
+
+        let path_raw = unsafe { folder_item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+        let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+        unsafe { CoTaskMemFree(path_raw.0 as _) };
+
+        let mut uris = Vec::new();
+
+        for name in &options.files {
+            let full_path = Path::new(&path).join(name);
+            if full_path.exists() {
+                todo!()
+            }
+
+            uris.push(String::from("file://") + &wslpath::to_wsl(distro, &full_path)?);
+        }
+
+        let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
+
+        Ok(SaveFilesResults { uris, choices })
     }
 
     fn add_choices(
@@ -367,6 +431,20 @@ impl FileChooser for FileChooserService {
         let request = request.into_inner();
 
         tokio::task::spawn_blocking(move || Self::save_file_sync(&distro_name, request))
+            .await
+            .map_err(util::map_to_status)
+            .and_then(|r| r.map_err(util::map_to_status))
+            .map(tonic::Response::new)
+    }
+
+    async fn save_files(
+        &self,
+        request: tonic::Request<SaveFilesRequest>,
+    ) -> Result<tonic::Response<SaveFilesResults>, tonic::Status> {
+        let distro_name = util::get_distro_name(&request)?;
+        let request = request.into_inner();
+
+        tokio::task::spawn_blocking(move || Self::save_files_sync(&distro_name, request))
             .await
             .map_err(util::map_to_status)
             .and_then(|r| r.map_err(util::map_to_status))
