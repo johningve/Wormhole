@@ -38,6 +38,10 @@ impl FileChooserService {
 
         unsafe { dialog.SetTitle(request.title) }?;
 
+        if let Some(accept_label) = &options.accept_label {
+            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
+        }
+
         let mut dialog_options = _FILEOPENDIALOGOPTIONS(unsafe { dialog.GetOptions() }? as _);
 
         if options.multiple() {
@@ -75,15 +79,22 @@ impl FileChooserService {
 
         let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
 
-        let current_filter =
-            &options.filters[file_types.indices[unsafe { dialog.GetFileTypeIndex() }? as usize]];
+        let current_filter = {
+            let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
+            if file_type_index < file_types.indices.len() {
+                let filter_index = file_types.indices[file_type_index];
+                Some(options.filters[filter_index].clone())
+            } else {
+                None
+            }
+        };
 
         drop(dialog);
 
         Ok(OpenFileResults {
             uris,
             choices,
-            current_filter: Some(current_filter.clone()),
+            current_filter,
             writable: Some(true),
         })
     }
@@ -96,13 +107,21 @@ impl FileChooserService {
 
         unsafe { dialog.SetTitle(request.title) }?;
 
+        if let Some(accept_label) = &options.accept_label {
+            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
+        }
+
+        if let Some(file_name) = &options.current_name {
+            unsafe { dialog.SetFileName(file_name.as_str()) }?;
+        }
+
         let folder_item: Option<IShellItem>;
 
-        if let Some(folder) = options.current_folder {
+        if let Some(folder) = &options.current_folder {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(distro, &folder).as_os_str(),
+                    wslpath::to_windows(distro, folder).as_os_str(),
                     None,
                     &Guid::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -112,8 +131,20 @@ impl FileChooserService {
             }
         }
 
-        if let Some(file_name) = options.current_file {
-            unsafe { dialog.SetFileName(file_name) }?;
+        let file_item: Option<IShellItem>;
+
+        if let Some(file) = &options.current_file {
+            unsafe {
+                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
+                SHCreateItemFromParsingName(
+                    wslpath::to_windows(distro, file).as_os_str(),
+                    None,
+                    &Guid::from(IID_SHELL_ITEM),
+                    item.as_mut_ptr() as _,
+                )?;
+                file_item = Some(item.assume_init());
+                dialog.SetSaveAsItem(file_item.unwrap())?;
+            }
         }
 
         // file_types must not be dropped before the dialog itself is dropped.
@@ -136,15 +167,22 @@ impl FileChooserService {
 
         let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
 
-        let current_filter =
-            &options.filters[file_types.indices[unsafe { dialog.GetFileTypeIndex() }? as usize]];
+        let current_filter = {
+            let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
+            if file_type_index < file_types.indices.len() {
+                let filter_index = file_types.indices[file_type_index];
+                Some(options.filters[filter_index].clone())
+            } else {
+                None
+            }
+        };
 
         drop(dialog);
 
         Ok(SaveFileResults {
             uris: vec![uri],
             choices,
-            current_filter: Some(current_filter.clone()),
+            current_filter,
         })
     }
 
