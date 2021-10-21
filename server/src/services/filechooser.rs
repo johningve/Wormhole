@@ -5,8 +5,8 @@ use bindings::Windows::Win32::{
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
     UI::Shell::{
         IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog, IShellItem,
-        SHCreateItemFromParsingName, ShellItem, COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT,
-        FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+        SHCreateItemFromParsingName, COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS,
+        SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
 use regex::Regex;
@@ -23,6 +23,8 @@ use crate::{util, wslpath};
 // TODO: replace when windows-rs provides these instead.
 const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";
 const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
+
+const IID_SHELL_ITEM: &str = "43826D1E-E718-42EE-BC55-A1E261C37BFE";
 
 #[derive(Default)]
 pub struct FileChooserService {}
@@ -102,12 +104,16 @@ impl FileChooserService {
                 SHCreateItemFromParsingName(
                     wslpath::to_windows(distro, &folder).as_os_str(),
                     None,
-                    &ShellItem,
+                    &Guid::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
                 )?;
                 folder_item = Some(item.assume_init());
                 dialog.SetFolder(folder_item.unwrap())?;
             }
+        }
+
+        if let Some(file_name) = options.current_file {
+            unsafe { dialog.SetFileName(file_name) }?;
         }
 
         // file_types must not be dropped before the dialog itself is dropped.
