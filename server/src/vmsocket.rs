@@ -1,9 +1,9 @@
 use bindings::Windows::Win32::Networking::WinSock::{
-    accept, bind, closesocket, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
+    accept, bind, closesocket, connect, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
     SOCKADDR, SOCKET, SOCK_STREAM, SOMAXCONN,
 };
 use scopeguard::ScopeGuard;
-use std::{net, os::windows::prelude::FromRawSocket, sync::Once};
+use std::{io, net, os::windows::prelude::FromRawSocket, sync::Once};
 use tokio::net::TcpStream;
 use uuid::Uuid;
 use windows::Guid;
@@ -39,15 +39,9 @@ impl Drop for HyperVSocket {
 }
 
 impl HyperVSocket {
-    pub fn bind(vmid: Uuid, port: u32) -> std::io::Result<HyperVSocket> {
+    pub fn bind(vmid: Uuid, port: u32) -> io::Result<HyperVSocket> {
         init();
-        let mut local_addr: HyperVSocketAddr = unsafe { std::mem::zeroed() };
-        local_addr.family = AF_HYPERV as _;
-        let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
-        let fields = service_id.as_fields();
-        local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
-        let fields = vmid.as_fields();
-        local_addr.vm_id = Guid::from_values(fields.0, fields.1, fields.2, *fields.3);
+        let local_addr = get_addr(vmid, port);
 
         // HV_PROTOCOL_RAW is defined as 1
         let fd = unsafe { socket(AF_HYPERV as _, SOCK_STREAM as _, 1) };
@@ -86,8 +80,52 @@ impl HyperVSocket {
             return Err(winsock_error());
         }
 
-        let stream = unsafe { net::TcpStream::from_raw_socket(fd.0 as _) };
-        stream.set_nonblocking(true)?;
-        TcpStream::from_std(stream)
+        unsafe { into_tcp_stream(fd) }
     }
+
+    pub fn connect(vmid: Uuid, port: u32) -> io::Result<TcpStream> {
+        init();
+        let local_addr = get_addr(vmid, port);
+
+        let fd = unsafe { socket(AF_HYPERV as _, SOCK_STREAM as _, 1) };
+        if fd == INVALID_SOCKET {
+            return Err(winsock_error());
+        }
+        let _guard = scopeguard::guard((), |_| {
+            unsafe { closesocket(fd) };
+        });
+
+        let result = unsafe {
+            connect(
+                fd,
+                &local_addr as *const _ as *const SOCKADDR,
+                std::mem::size_of::<HyperVSocketAddr>() as _,
+            )
+        };
+
+        if result < 0 {
+            return Err(winsock_error());
+        }
+
+        ScopeGuard::into_inner(_guard);
+
+        unsafe { into_tcp_stream(fd) }
+    }
+}
+
+fn get_addr(vmid: Uuid, port: u32) -> HyperVSocketAddr {
+    let mut local_addr: HyperVSocketAddr = unsafe { std::mem::zeroed() };
+    local_addr.family = AF_HYPERV as _;
+    let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
+    let fields = service_id.as_fields();
+    local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
+    let fields = vmid.as_fields();
+    local_addr.vm_id = Guid::from_values(fields.0, fields.1, fields.2, *fields.3);
+    local_addr
+}
+
+unsafe fn into_tcp_stream(socket: SOCKET) -> io::Result<TcpStream> {
+    let stream = net::TcpStream::from_raw_socket(socket.0 as _);
+    stream.set_nonblocking(true)?;
+    TcpStream::from_std(stream)
 }
