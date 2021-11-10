@@ -1,24 +1,10 @@
-use std::{thread, time::Duration};
-
 use bindings::Windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
-use rpc::{
-    filechooser::file_chooser_server::FileChooserServer,
-    notifications::notifications_server::NotificationsServer,
-};
-use services::notifications::NotificationsService;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use tonic::transport::Server;
-
-use crate::services::filechooser::FileChooserService;
-
-use zbus::Socket;
 
 mod services;
-mod toasthelper;
-mod util;
 mod vmcompute;
 mod vmsocket;
 mod wslpath;
@@ -29,23 +15,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) }.unwrap();
     unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
-
-    // let incoming = async_stream::stream! {
-    //     let listener = vmsocket::HyperVSocket::bind(
-    //         vmcompute::get_wsl_vmid()?,
-    //         7070,
-    //     )?;
-
-    //     loop {
-    //         yield listener.accept();
-    //     }
-    // };
-
-    // Server::builder()
-    //     .add_service(NotificationsServer::new(NotificationsService::default()))
-    //     .add_service(FileChooserServer::new(FileChooserService::default()))
-    //     .serve_with_incoming(incoming)
-    //     .await?;
 
     let mut stream = vmsocket::HyperVSocket::connect(vmcompute::get_wsl_vmid()?, 7070)?;
 
@@ -76,16 +45,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     std::env::set_var("ZBUS_WSL_USER", user_name.trim_end());
 
-    let mut connection = zbus::ConnectionBuilder::socket(stream)
-        .name("org.freedesktop.impl.portal.desktop.windows")?
+    let connection = zbus::ConnectionBuilder::socket(stream)
+        .internal_executor(false)
         .build()
         .await?;
 
-    println!("done?");
+    let handle = {
+        let connection = connection.clone();
+        tokio::spawn(async move {
+            loop {
+                connection.executor().tick().await;
+            }
+        })
+    };
 
-    loop {
-        thread::sleep(Duration::from_millis(1000));
-    }
+    connection
+        .request_name("org.freedesktop.impl.portal.desktop.windows")
+        .await?;
+
+    services::init_all(&connection, distro_name.trim_end()).await?;
+
+    log::info!("all services initialized");
+
+    handle.await?;
+
+    connection
+        .release_name("org.freedesktop.impl.portal.desktop.windows")
+        .await?;
 
     Ok(())
 }

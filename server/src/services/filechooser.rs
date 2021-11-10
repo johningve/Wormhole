@@ -10,15 +10,17 @@ use bindings::Windows::Win32::{
     },
 };
 use regex::Regex;
-use rpc::filechooser::{
-    file_chooser_server::FileChooser, Choice, FileFilter, OpenFileRequest, OpenFileResults,
-    SaveFileRequest, SaveFileResults, SaveFilesRequest, SaveFilesResults,
-};
 use widestring::WideCStr;
 use windows::Guid;
 use windows::Interface;
 
-use crate::{util, wslpath};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use zbus::{dbus_interface, Connection};
+use zvariant::OwnedObjectPath;
+use zvariant_derive::{DeserializeDict, SerializeDict, Type, TypeDict};
+
+use crate::wslpath;
 
 // TODO: replace when windows-rs provides these instead.
 const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";
@@ -26,41 +28,60 @@ const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
 
 const IID_SHELL_ITEM: &str = "43826D1E-E718-42EE-BC55-A1E261C37BFE";
 
-#[derive(Default)]
-pub struct FileChooserService {}
+#[derive(Default, Clone)]
+pub struct FileChooser {
+    distro: String,
+}
 
-impl FileChooserService {
-    fn open_file_sync(distro: &str, request: OpenFileRequest) -> anyhow::Result<OpenFileResults> {
-        let options = request.options.unwrap_or_default();
+impl FileChooser {
+    pub async fn init(connection: &Connection, distro: &str) -> zbus::Result<()> {
+        connection.object_server_mut().await.at(
+            super::PORTAL_PATH,
+            FileChooser {
+                distro: distro.to_string(),
+            },
+        )?;
 
+        log::info!("FileChooser portal enabled.");
+
+        Ok(())
+    }
+
+    fn open_file_sync(
+        &self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        parent_window: &str,
+        title: &str,
+        options: OpenFileOptions,
+    ) -> anyhow::Result<OpenFileResults> {
         let dialog: IFileOpenDialog =
             unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
 
-        unsafe { dialog.SetTitle(request.title) }?;
+        unsafe { dialog.SetTitle(title) }?;
 
         if let Some(accept_label) = &options.accept_label {
             unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
         }
 
         let mut dialog_options = _FILEOPENDIALOGOPTIONS(unsafe { dialog.GetOptions() }? as _);
-
-        if options.multiple() {
+        if options.multiple.unwrap_or_default() {
             dialog_options.0 |= FOS_ALLOWMULTISELECT.0;
         }
-
-        if options.directory() {
+        if options.directory.unwrap_or_default() {
             dialog_options.0 |= FOS_PICKFOLDERS.0;
         }
-
         unsafe { dialog.SetOptions(dialog_options.0 as _) }?;
 
+        let filters = options.filters.unwrap_or_default();
         // file_types must not be dropped before the dialog itself is dropped.
-        let file_types = FileTypes::from(&options.filters);
+        let file_types = FileTypes::from(&filters);
         let (count, ptr) = file_types.get_ptr();
         // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
         unsafe { dialog.SetFileTypes(count, ptr) }?;
 
-        let id_mapping = Self::add_choices(dialog.cast()?, &options.choices)?;
+        let choices = options.choices.unwrap_or_default();
+        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
 
         let dialog_results = unsafe {
             dialog.Show(None)?;
@@ -74,16 +95,16 @@ impl FileChooserService {
             let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
             let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
             unsafe { CoTaskMemFree(path_raw.0 as _) };
-            uris.push(String::from("file://") + &wslpath::to_wsl(distro, Path::new(&path))?);
+            uris.push(String::from("file://") + &wslpath::to_wsl(&self.distro, Path::new(&path))?);
         }
 
-        let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
+        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
 
         let current_filter = {
             let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
             if file_type_index < file_types.indices.len() {
                 let filter_index = file_types.indices[file_type_index];
-                Some(options.filters[filter_index].clone())
+                Some(filters[filter_index].clone())
             } else {
                 None
             }
@@ -99,13 +120,18 @@ impl FileChooserService {
         })
     }
 
-    fn save_file_sync(distro: &str, request: SaveFileRequest) -> anyhow::Result<SaveFileResults> {
-        let options = request.options.unwrap_or_default();
-
+    fn save_file_sync(
+        &self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        parent_window: &str,
+        title: &str,
+        options: SaveFileOptions,
+    ) -> anyhow::Result<SaveFileResults> {
         let dialog: IFileSaveDialog =
             unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
 
-        unsafe { dialog.SetTitle(request.title) }?;
+        unsafe { dialog.SetTitle(title) }?;
 
         if let Some(accept_label) = &options.accept_label {
             unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
@@ -117,11 +143,11 @@ impl FileChooserService {
 
         let folder_item: Option<IShellItem>;
 
-        if let Some(folder) = &options.current_folder {
+        if let Some(folder) = options.current_folder {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(distro, folder).as_os_str(),
+                    wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
                     None,
                     &Guid::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -133,11 +159,11 @@ impl FileChooserService {
 
         let file_item: Option<IShellItem>;
 
-        if let Some(file) = &options.current_file {
+        if let Some(file) = options.current_file {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(distro, file).as_os_str(),
+                    wslpath::to_windows(&self.distro, &String::from_utf8(file)?).as_os_str(),
                     None,
                     &Guid::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -147,13 +173,15 @@ impl FileChooserService {
             }
         }
 
+        let filters = options.filters.unwrap_or_default();
         // file_types must not be dropped before the dialog itself is dropped.
-        let file_types = FileTypes::from(&options.filters);
+        let file_types = FileTypes::from(&filters);
         let (count, ptr) = file_types.get_ptr();
         // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
         unsafe { dialog.SetFileTypes(count, ptr) }?;
 
-        let id_mapping = Self::add_choices(dialog.cast()?, &options.choices)?;
+        let choices = options.choices.unwrap_or_default();
+        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
 
         let item = unsafe {
             dialog.Show(None)?;
@@ -163,15 +191,15 @@ impl FileChooserService {
         let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
         let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
         unsafe { CoTaskMemFree(path_raw.0 as _) };
-        let uri = String::from("file://") + &wslpath::to_wsl(distro, Path::new(&path))?;
+        let uri = String::from("file://") + &wslpath::to_wsl(&self.distro, Path::new(&path))?;
 
-        let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
+        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
 
         let current_filter = {
             let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
             if file_type_index < file_types.indices.len() {
                 let filter_index = file_types.indices[file_type_index];
-                Some(options.filters[filter_index].clone())
+                Some(filters[filter_index].clone())
             } else {
                 None
             }
@@ -187,15 +215,17 @@ impl FileChooserService {
     }
 
     fn save_files_sync(
-        distro: &str,
-        request: SaveFilesRequest,
+        &self,
+        handle: OwnedObjectPath,
+        app_id: &str,
+        parent_window: &str,
+        title: &str,
+        options: SaveFilesOptions,
     ) -> anyhow::Result<SaveFilesResults> {
-        let options = request.options.unwrap_or_default();
-
         let dialog: IFileOpenDialog =
             unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
 
-        unsafe { dialog.SetTitle(request.title) }?;
+        unsafe { dialog.SetTitle(title) }?;
 
         if let Some(accept_label) = &options.accept_label {
             unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
@@ -203,11 +233,11 @@ impl FileChooserService {
 
         let folder_item: Option<IShellItem>;
 
-        if let Some(folder) = &options.current_folder {
+        if let Some(folder) = options.current_folder {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(distro, folder).as_os_str(),
+                    wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
                     None,
                     &Guid::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -217,7 +247,8 @@ impl FileChooserService {
             }
         }
 
-        let id_mapping = Self::add_choices(dialog.cast()?, &options.choices)?;
+        let choices = options.choices.unwrap_or_default();
+        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
 
         let folder_item = unsafe {
             dialog.Show(None)?;
@@ -230,29 +261,29 @@ impl FileChooserService {
 
         let mut uris = Vec::new();
 
-        for name in &options.files {
-            let full_path = Path::new(&path).join(name);
+        for name in options.files.unwrap_or_default() {
+            let full_path = Path::new(&path).join(String::from_utf8(name)?);
             if full_path.exists() {
                 todo!()
             }
 
-            uris.push(String::from("file://") + &wslpath::to_wsl(distro, &full_path)?);
+            uris.push(String::from("file://") + &wslpath::to_wsl(&self.distro, &full_path)?);
         }
 
-        let choices = Self::read_choices(dialog.cast()?, &options.choices, &id_mapping)?;
+        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
 
         Ok(SaveFilesResults { uris, choices })
     }
 
     fn add_choices(
         dialog: IFileDialogCustomize,
-        choices: &'_ HashMap<String, Choice>,
+        choices: &'_ Vec<Choice>,
     ) -> windows::Result<HashMap<u32, &'_ str>> {
         let mut id_mapping = HashMap::new();
         let mut id = 0;
 
-        for (choice_id, choice) in choices {
-            id_mapping.insert(id, choice_id.as_str());
+        for choice in choices {
+            id_mapping.insert(id, choice.id.as_str());
             if choice.choices.is_empty() {
                 unsafe {
                     dialog.AddCheckButton(
@@ -277,20 +308,20 @@ impl FileChooserService {
 
     fn read_choices(
         dialog: IFileDialogCustomize,
-        choices: &HashMap<String, Choice>,
+        choices: &Vec<Choice>,
         id_mapping: &HashMap<u32, &'_ str>,
-    ) -> windows::Result<HashMap<String, String>> {
-        let mut choice_results = HashMap::new();
+    ) -> windows::Result<Vec<(String, String)>> {
+        let mut choice_results = Vec::new();
 
         for (id, choice_id) in id_mapping {
-            if let Some(choice) = choices.get(*choice_id) {
+            if let Some(choice) = choices.iter().find(|c| c.id == *choice_id) {
                 if choice.choices.is_empty() {
                     let state = unsafe { dialog.GetCheckButtonState(*id) }?;
-                    choice_results.insert(choice_id.to_string(), state.as_bool().to_string());
+                    choice_results.push((choice_id.to_string(), state.as_bool().to_string()));
                 } else {
                     let state = unsafe { dialog.GetSelectedControlItem(*id) }?;
                     if let Some(item_id) = id_mapping.get(&state) {
-                        choice_results.insert(choice_id.to_string(), item_id.to_string());
+                        choice_results.push((choice_id.to_string(), item_id.to_string()));
                     }
                 }
             }
@@ -337,17 +368,17 @@ impl From<&Vec<FileFilter>> for FileTypes {
 
         for (i, filter) in filters.iter().enumerate() {
             let mut filter_spec = String::new();
-            for filter_entry in &filter.entries {
-                match filter_entry.r#type() {
-                    rpc::filechooser::FilterType::GlobPattern => {
+            for filter_entry in &filter.filters {
+                match filter_entry.0 {
+                    FilterType::GlobPattern => {
                         if !filter_spec.is_empty() {
                             filter_spec.push(';');
                         }
-                        filter_spec.push_str(&glob_patter_to_filter(&filter_entry.filter));
+                        filter_spec.push_str(&glob_patter_to_filter(&filter_entry.1));
                     }
-                    rpc::filechooser::FilterType::MimeType => {
+                    FilterType::MimeType => {
                         if let Some(extensions) =
-                            new_mime_guess::get_mime_extensions_str(&filter_entry.filter)
+                            new_mime_guess::get_mime_extensions_str(&filter_entry.1)
                         {
                             for extension in extensions {
                                 if !filter_spec.is_empty() {
@@ -401,62 +432,172 @@ impl FileTypes {
     }
 }
 
-#[tonic::async_trait]
-impl FileChooser for FileChooserService {
+#[dbus_interface(name = "org.freedesktop.impl.portal.FileChooser")]
+impl FileChooser {
     async fn open_file(
-        &self,
-        request: tonic::Request<OpenFileRequest>,
-    ) -> Result<tonic::Response<OpenFileResults>, tonic::Status> {
-        let distro_name = util::get_distro_name(&request)?;
-        let request = request.into_inner();
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
+        options: OpenFileOptions,
+    ) -> (u32, OpenFileResults) {
+        log::debug!("open_file called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
 
-        tokio::task::spawn_blocking(move || Self::open_file_sync(&distro_name, request))
-            .await
-            .map_err(util::map_to_status)
-            .and_then(|r| r.map_err(util::map_to_status))
-            .map(tonic::Response::new)
+        let c = self.clone();
+
+        match tokio::task::spawn_blocking(move || {
+            c.open_file_sync(handle, &app_id, &parent_window, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("open_file errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("open_file errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, OpenFileResults::default()),
+        }
     }
 
     async fn save_file(
-        &self,
-        request: tonic::Request<SaveFileRequest>,
-    ) -> Result<tonic::Response<SaveFileResults>, tonic::Status> {
-        let distro_name = util::get_distro_name(&request)?;
-        let request = request.into_inner();
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
+        options: SaveFileOptions,
+    ) -> (u32, SaveFileResults) {
+        log::debug!("save_file called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
 
-        tokio::task::spawn_blocking(move || Self::save_file_sync(&distro_name, request))
-            .await
-            .map_err(util::map_to_status)
-            .and_then(|r| r.map_err(util::map_to_status))
-            .map(tonic::Response::new)
+        let c = self.clone();
+
+        match tokio::task::spawn_blocking(move || {
+            c.save_file_sync(handle, &app_id, &parent_window, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("save_file errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("save_file errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, SaveFileResults::default()),
+        }
     }
 
     async fn save_files(
-        &self,
-        request: tonic::Request<SaveFilesRequest>,
-    ) -> Result<tonic::Response<SaveFilesResults>, tonic::Status> {
-        let distro_name = util::get_distro_name(&request)?;
-        let request = request.into_inner();
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
+        options: SaveFilesOptions,
+    ) -> (u32, SaveFilesResults) {
+        log::debug!("save_files called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
 
-        tokio::task::spawn_blocking(move || Self::save_files_sync(&distro_name, request))
-            .await
-            .map_err(util::map_to_status)
-            .and_then(|r| r.map_err(util::map_to_status))
-            .map(tonic::Response::new)
+        let c = self.clone();
+
+        match tokio::task::spawn_blocking(move || {
+            c.save_files_sync(handle, &app_id, &parent_window, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("save_files errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("save_files errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, SaveFilesResults::default()),
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use bindings::Windows::Win32::{
-        System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
-        UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
-    };
+#[derive(Serialize, Deserialize, Type, Clone, Debug)]
+/// A file filter, to limit the available file choices to a mimetype or a glob
+/// pattern.
+pub struct FileFilter {
+    label: String,
+    filters: Vec<(FilterType, String)>,
+}
 
-    #[test]
-    fn test_get_open_file_name() {
-        unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) }.unwrap();
-        unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
-        println!("hello");
-    }
+#[derive(Serialize_repr, Clone, Deserialize_repr, PartialEq, Debug, Type)]
+#[repr(u32)]
+#[doc(hidden)]
+enum FilterType {
+    GlobPattern = 0,
+    MimeType = 1,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Debug)]
+/// Presents the user with a choice to select from or as a checkbox.
+pub struct Choice {
+    id: String,
+    label: String,
+    choices: Vec<(String, String)>,
+    initial_selection: String,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct OpenFileOptions {
+    accept_label: Option<String>,
+    modal: Option<bool>,
+    multiple: Option<bool>,
+    directory: Option<bool>,
+    filters: Option<Vec<FileFilter>>,
+    current_filter: Option<FileFilter>,
+    choices: Option<Vec<Choice>>,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct OpenFileResults {
+    uris: Vec<String>,
+    choices: Vec<(String, String)>,
+    current_filter: Option<FileFilter>,
+    writable: Option<bool>,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct SaveFileOptions {
+    accept_label: Option<String>,
+    modal: Option<bool>,
+    multiple: Option<bool>,
+    filters: Option<Vec<FileFilter>>,
+    current_filter: Option<FileFilter>,
+    choices: Option<Vec<Choice>>,
+    current_name: Option<String>,
+    current_folder: Option<Vec<u8>>,
+    current_file: Option<Vec<u8>>,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct SaveFileResults {
+    uris: Vec<String>,
+    choices: Vec<(String, String)>,
+    current_filter: Option<FileFilter>,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct SaveFilesOptions {
+    handle_token: Option<String>,
+    accept_label: Option<String>,
+    modal: Option<bool>,
+    choices: Option<Vec<Choice>>,
+    current_folder: Option<Vec<u8>>,
+    files: Option<Vec<Vec<u8>>>,
+}
+
+#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+pub struct SaveFilesResults {
+    uris: Vec<String>,
+    choices: Vec<(String, String)>,
 }
