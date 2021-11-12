@@ -5,6 +5,7 @@ use bindings::Windows::Win32::{
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 mod services;
+mod toasthelper;
 mod vmcompute;
 mod vmsocket;
 mod wslpath;

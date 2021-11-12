@@ -1,5 +1,4 @@
 extern crate xml;
-use rpc::notifications::NotifyRequest;
 use windows::{IInspectable, Interface, HSTRING};
 use xml::escape::{escape_str_attribute, escape_str_pcdata};
 
@@ -17,14 +16,15 @@ use xml::escape::{escape_str_attribute, escape_str_pcdata};
 use bindings::{
     Windows::Data::Xml::Dom::XmlDocument,
     Windows::Foundation::TypedEventHandler,
-    Windows::UI::Notifications::ToastNotification,
-    Windows::UI::Notifications::ToastNotificationManager,
     Windows::UI::Notifications::{ToastActivatedEventArgs, ToastFailedEventArgs},
+    Windows::UI::Notifications::{ToastDismissalReason, ToastNotification},
+    Windows::UI::Notifications::{ToastDismissedEventArgs, ToastNotificationManager},
 };
 
 //https://social.msdn.microsoft.com/Forums/Windows/en-US/99e0d4bd-07cb-4ebd-8c92-c44ac6e7e5de/toast-notification-dismissed-event-handler-not-called-every-time?forum=windowsgeneraldevelopmentissues
 pub use windows::Error;
 
+use crate::services::notifications::Notification;
 use crate::wslpath;
 
 pub struct ToastHelper {
@@ -32,15 +32,16 @@ pub struct ToastHelper {
 }
 
 impl ToastHelper {
-    pub fn from(
-        notify_request: &NotifyRequest,
+    pub fn new(
         tag: &str,
         distro: &str,
+        summary: &str,
+        body: &str,
+        image: Option<&str>,
+        actions: Vec<&str>,
     ) -> anyhow::Result<ToastHelper> {
-        let image_path = wslpath::get_temp_copy(distro, &notify_request.image_path)?;
-        log::debug!("{:#?}", notify_request);
-
-        let image = if image_path.exists() {
+        let image = if image.is_some() {
+            let image_path = wslpath::get_temp_copy(distro, image.unwrap())?;
             log::debug!("using image: {}", image_path.as_os_str().to_string_lossy());
             format!(
                 r#"<image placement="appLogoOverride" src="file://{}" />"#,
@@ -49,8 +50,6 @@ impl ToastHelper {
         } else {
             String::new()
         };
-
-        log::debug!("image: {}", image);
 
         let visual = format!(
             r#"<visual>
@@ -63,31 +62,31 @@ impl ToastHelper {
                     <!-- <image id="1" src="file:///..." alt="another_image" /> -->
                 </binding>
             </visual>"#,
-            heading = escape_str_pcdata(&notify_request.summary),
-            content = escape_str_pcdata(&notify_request.body),
+            heading = escape_str_pcdata(summary),
+            content = escape_str_pcdata(body),
             image = image,
         );
 
-        let mut actions = String::from("<actions>");
+        let mut actions_xml = String::from("<actions>");
         let mut launch_arg = "";
 
         // TODO: the freedesktop notifications spec sends actions in a vector, these should really be paired up since
         // each even index is an action name, and every odd index is a display name.
-        for action in &notify_request.actions {
-            if action.name == "default" {
+        for action in actions.chunks_exact(2) {
+            if action[0] == "default" {
                 launch_arg = "default";
             } else {
-                actions.push_str(
+                actions_xml.push_str(
                     format!(
                         r#"<action content="{content}" arguments="{action}" />"#,
-                        content = escape_str_attribute(&action.label),
-                        action = escape_str_attribute(&action.name)
+                        content = escape_str_attribute(action[1]),
+                        action = escape_str_attribute(action[0])
                     )
                     .as_str(),
                 );
             }
         }
-        actions.push_str("</actions>");
+        actions_xml.push_str("</actions>");
 
         let toast_xml = XmlDocument::new()?;
         let xml = format!(
@@ -100,7 +99,7 @@ impl ToastHelper {
             </toast>"#,
             launch = launch_arg,
             visual = visual,
-            actions = actions
+            actions = actions_xml
         );
         toast_xml.LoadXml(xml).expect("the xml is malformed");
 
@@ -123,15 +122,18 @@ impl ToastHelper {
         Ok(())
     }
 
-    pub fn on_dismissed(&self, callback: impl Fn() + 'static) -> windows::Result<()> {
-        self.toast
-            .Dismissed(TypedEventHandler::new(move |_, result| {
+    pub fn on_dismissed(
+        &self,
+        callback: impl Fn(ToastDismissalReason) + 'static,
+    ) -> windows::Result<()> {
+        self.toast.Dismissed(TypedEventHandler::new(
+            move |_, result: &Option<ToastDismissedEventArgs>| {
                 if let Some(_result) = result {
-                    // let args = result.cast::<ToastDismissedEventArgs>()?;
-                    callback();
+                    callback(_result.Reason().unwrap());
                 }
                 Ok(())
-            }))?;
+            },
+        ))?;
         Ok(())
     }
 
