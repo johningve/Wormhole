@@ -4,6 +4,7 @@ use windows::Win32::{
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
 
+mod proxies;
 mod services;
 mod toasthelper;
 mod vmcompute;

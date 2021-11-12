@@ -9,6 +9,7 @@ use windows::UI::Notifications::ToastDismissalReason;
 use zbus::{dbus_interface, Connection, SignalContext};
 use zvariant_derive::Type;
 
+use crate::proxies::icons::IconsProxy;
 use crate::toasthelper::ToastHelper;
 
 enum ToastEvent {
@@ -26,13 +27,13 @@ enum NotificationClosedReason {
 
 #[derive(Default)]
 struct NotificationsServiceData {
-    distro: String,
     next_id: u32,
     notifications: BTreeMap<u32, ToastHelper>,
 }
 
-#[derive(Default)]
 pub struct Notifications {
+    distro: String,
+    icons: Box<IconsProxy<'static>>,
     data: Mutex<NotificationsServiceData>,
 }
 
@@ -45,8 +46,9 @@ impl Notifications {
         connection.object_server_mut().await.at(
             "/org/freedesktop/Notifications",
             Notifications {
+                distro: distro.to_string(),
+                icons: Box::new(IconsProxy::new(connection).await?),
                 data: Mutex::new(NotificationsServiceData {
-                    distro: distro.to_string(),
                     next_id: 1,
                     notifications: BTreeMap::new(),
                 }),
@@ -58,11 +60,13 @@ impl Notifications {
         Ok(())
     }
 
-    fn notify_internal(
+    async fn notify_internal(
         &self,
         ctx: SignalContext<'_>,
         notification: Notification<'_>,
     ) -> anyhow::Result<u32> {
+        let icon = self.icons.lookup_icon(notification.app_icon, 64).await?;
+
         let mut data = self.data.lock().expect("poisoned mutex");
 
         let id = data.next_id;
@@ -70,10 +74,10 @@ impl Notifications {
 
         let toast = ToastHelper::new(
             &id.to_string(),
-            &data.distro,
+            &self.distro,
             notification.summary,
             notification.body,
-            None,
+            if !icon.is_empty() { Some(&icon) } else { None }, // cool
             notification.actions,
         )?;
 
@@ -173,7 +177,7 @@ impl Notifications {
     ) -> u32 {
         log::debug!("notify {:#?}", notification);
 
-        match self.notify_internal(ctx, notification) {
+        match self.notify_internal(ctx, notification).await {
             Ok(id) => id,
             Err(err) => {
                 log::error!("notify failed: {}", err);
