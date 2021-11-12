@@ -1,8 +1,8 @@
-use bindings::Windows::Win32::{
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 mod services;
 mod toasthelper;

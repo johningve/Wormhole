@@ -1,18 +1,18 @@
-use bindings::Windows::Win32::Networking::WinSock::{
-    accept, bind, closesocket, connect, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
-    SOCKADDR, SOCKET, SOCK_STREAM, SOMAXCONN,
-};
 use scopeguard::ScopeGuard;
 use std::{io, net, os::windows::prelude::FromRawSocket, sync::Once};
 use tokio::net::TcpStream;
 use uuid::Uuid;
-use windows::Guid;
+use windows::runtime::GUID;
+use windows::Win32::Networking::WinSock::{
+    accept, bind, closesocket, connect, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
+    SOCKADDR, SOCKET, SOCK_STREAM, SOMAXCONN,
+};
 
 struct HyperVSocketAddr {
     pub family: u32,
     pub _reserved: u16,
-    pub vm_id: windows::Guid,
-    pub service_id: windows::Guid,
+    pub vm_id: windows::runtime::GUID,
+    pub service_id: windows::runtime::GUID,
 }
 
 /// Initialise the network stack for Windows.
@@ -118,9 +118,9 @@ fn get_addr(vmid: Uuid, port: u32) -> HyperVSocketAddr {
     local_addr.family = AF_HYPERV as _;
     let service_id: Uuid = "00000000-facb-11e6-bd58-64006a7986d3".parse().unwrap();
     let fields = service_id.as_fields();
-    local_addr.service_id = Guid::from_values(port, fields.1, fields.2, *fields.3);
+    local_addr.service_id = GUID::from_values(port, fields.1, fields.2, *fields.3);
     let fields = vmid.as_fields();
-    local_addr.vm_id = Guid::from_values(fields.0, fields.1, fields.2, *fields.3);
+    local_addr.vm_id = GUID::from_values(fields.0, fields.1, fields.2, *fields.3);
     local_addr
 }
 

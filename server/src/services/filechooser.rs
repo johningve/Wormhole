@@ -1,18 +1,18 @@
 use std::{collections::HashMap, mem::MaybeUninit, path::Path};
 
-use bindings::Windows::Win32::{
+use regex::Regex;
+use widestring::WideCStr;
+use windows::runtime::Interface;
+use windows::runtime::GUID;
+use windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
     UI::Shell::{
-        IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog, IShellItem,
-        SHCreateItemFromParsingName, COMDLG_FILTERSPEC, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS,
+        Common::COMDLG_FILTERSPEC, IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog,
+        IShellItem, SHCreateItemFromParsingName, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS,
         SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
-use regex::Regex;
-use widestring::WideCStr;
-use windows::Guid;
-use windows::Interface;
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -56,7 +56,7 @@ impl FileChooser {
         options: OpenFileOptions,
     ) -> anyhow::Result<OpenFileResults> {
         let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -129,7 +129,7 @@ impl FileChooser {
         options: SaveFileOptions,
     ) -> anyhow::Result<SaveFileResults> {
         let dialog: IFileSaveDialog =
-            unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -149,7 +149,7 @@ impl FileChooser {
                 SHCreateItemFromParsingName(
                     wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
                     None,
-                    &Guid::from(IID_SHELL_ITEM),
+                    &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
                 )?;
                 folder_item = Some(item.assume_init());
@@ -165,7 +165,7 @@ impl FileChooser {
                 SHCreateItemFromParsingName(
                     wslpath::to_windows(&self.distro, &String::from_utf8(file)?).as_os_str(),
                     None,
-                    &Guid::from(IID_SHELL_ITEM),
+                    &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
                 )?;
                 file_item = Some(item.assume_init());
@@ -223,7 +223,7 @@ impl FileChooser {
         options: SaveFilesOptions,
     ) -> anyhow::Result<SaveFilesResults> {
         let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&Guid::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -239,7 +239,7 @@ impl FileChooser {
                 SHCreateItemFromParsingName(
                     wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
                     None,
-                    &Guid::from(IID_SHELL_ITEM),
+                    &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
                 )?;
                 folder_item = Some(item.assume_init());
@@ -278,7 +278,7 @@ impl FileChooser {
     fn add_choices(
         dialog: IFileDialogCustomize,
         choices: &'_ Vec<Choice>,
-    ) -> windows::Result<HashMap<u32, &'_ str>> {
+    ) -> windows::runtime::Result<HashMap<u32, &'_ str>> {
         let mut id_mapping = HashMap::new();
         let mut id = 0;
 
@@ -310,7 +310,7 @@ impl FileChooser {
         dialog: IFileDialogCustomize,
         choices: &Vec<Choice>,
         id_mapping: &HashMap<u32, &'_ str>,
-    ) -> windows::Result<Vec<(String, String)>> {
+    ) -> windows::runtime::Result<Vec<(String, String)>> {
         let mut choice_results = Vec::new();
 
         for (id, choice_id) in id_mapping {

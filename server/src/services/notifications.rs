@@ -3,9 +3,9 @@ use std::{
     sync::Mutex,
 };
 
-use bindings::Windows::UI::Notifications::ToastDismissalReason;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use windows::UI::Notifications::ToastDismissalReason;
 use zbus::{dbus_interface, Connection, SignalContext};
 use zvariant_derive::Type;
 
@@ -14,7 +14,7 @@ use crate::toasthelper::ToastHelper;
 enum ToastEvent {
     Activated(String),
     Dismissed(ToastDismissalReason),
-    Failed(windows::Error),
+    Failed(windows::runtime::Error),
 }
 
 enum NotificationClosedReason {

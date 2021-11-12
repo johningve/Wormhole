@@ -2,15 +2,15 @@ use uuid::Uuid;
 
 mod hcs {
 
-    use bindings::Windows::Win32::System::{
-        Com::CoTaskMemFree,
-        LibraryLoader::{FreeLibrary, GetProcAddress, LoadLibraryA},
-    };
     use scopeguard::defer;
     use serde::Deserialize;
     use uuid::Uuid;
     use widestring::{WideCStr, WideCString};
-    use windows::Handle;
+    use windows::runtime::Handle;
+    use windows::Win32::System::{
+        Com::CoTaskMemFree,
+        LibraryLoader::{FreeLibrary, GetProcAddress, LoadLibraryA},
+    };
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
