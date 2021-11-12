@@ -7,6 +7,7 @@ use tokio::{
 use vmsocket::VmSocket;
 use zbus::{Address, ConnectionBuilder};
 
+mod services;
 mod vmsocket;
 
 const CONNECT: &[u8] = b"connect\r\n";
@@ -38,6 +39,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     // handle.await?;
+
+    services::init_all(&dbus_connection).await?;
 
     // connect to the bus socket and pipe it to vm socket
 
