@@ -1,5 +1,4 @@
-use libc::user;
-use std::{error::Error, io::Write, path::Path};
+use std::{error::Error, path::Path};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -37,8 +36,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dbus_connection
         .request_name("org.freedesktop.impl.portal.desktop.wsl")
         .await?;
-
-    // services::init_all(grpc_channel, &dbus_connection).await?;
 
     // handle.await?;
 
