@@ -1,5 +1,2 @@
-server/target
-client/target
-rpc/target
-session-manager/target
-demo/target
+
+target/
