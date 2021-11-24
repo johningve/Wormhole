@@ -734,15 +734,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9def91fd1e018fe007022791f865d0ccc9b3a0d5001e01aabb8b40e46000afb5"
 
 [[package]]
-name = "slotmap"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1e08e261d0e8f5c43123b7adf3e4ca1690d655377ac93a03b2c9d3e98de1342"
-dependencies = [
- "version_check",
-]
-
-[[package]]
 name = "socket2"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1035,7 +1026,6 @@ dependencies = [
  "serde",
  "serde_repr",
  "sha1",
- "slotmap",
  "static_assertions",
  "tokio",
  "windows 0.24.0",
@@ -1066,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "zvariant"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "byteorder",
  "enumflags2",
@@ -1078,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "zvariant_derive"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",

@@ -1,22 +1,35 @@
 use std::{
     collections::HashSet,
+    convert::TryFrom,
     sync::{Arc, Mutex},
 };
 
-use futures::FutureExt;
-use zbus::{dbus_interface, fdo, Connection, InterfaceDeref, SignalContext};
+use futures::{FutureExt, StreamExt};
+use zbus::{
+    dbus_interface, fdo,
+    names::{BusName, OwnedBusName},
+    Connection, InterfaceDeref, SignalContext,
+};
+
+use crate::unwrap_or_log;
 
 const PATH: &str = "/StatusNotifierWatcher";
 
+#[derive(Default)]
+struct WatcherInner {
+    items: HashSet<OwnedBusName>,
+    host: Option<OwnedBusName>,
+}
+
 #[derive(Clone)]
 pub struct StatusNotifierWatcher {
-    items: Arc<Mutex<HashSet<String>>>,
+    inner: Arc<Mutex<WatcherInner>>,
 }
 
 impl StatusNotifierWatcher {
     pub async fn init(connection: &Connection, _distro: &str) -> zbus::Result<()> {
         let watcher = StatusNotifierWatcher {
-            items: Arc::new(Mutex::new(HashSet::new())),
+            inner: Arc::new(Mutex::new(WatcherInner::default())),
         };
 
         watcher.handle_name_owner_changed(connection).await?;
@@ -26,27 +39,41 @@ impl StatusNotifierWatcher {
         Ok(())
     }
 
-    fn insert_item(&self, service: &str) -> bool {
-        let mut items = self.items.lock().unwrap();
-        items.insert(service.to_string())
+    fn insert_item(&self, service: BusName<'_>) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        inner.items.insert(service.into())
     }
 
-    fn remove_item(&self, service: &str) -> bool {
-        let mut items = self.items.lock().unwrap();
-        items.remove(service)
+    fn remove_item(&self, service: BusName<'_>) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        inner.items.remove(&service.into())
+    }
+
+    fn register_host(&self, service: BusName<'_>) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.host = Some(service.into());
+    }
+
+    fn is_host_registered(&self) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        inner.host.is_some()
     }
 
     async fn handle_name_owner_changed(&self, connection: &Connection) -> zbus::Result<()> {
         let watcher = self.clone();
         let connection = connection.clone();
         let dbus = fdo::DBusProxy::new(&connection).await?;
-        dbus.connect_name_owner_changed(move |name, _old_owner, new_owner| {
-            if new_owner.is_none() {
-                // service was unregistered
-                if watcher.remove_item(name.as_str()) {
-                    let connection = connection.clone(); // rust gets very angry if I don't copy this again.
-                    return async move {
-                        connection
+        let mut name_owner_changed_stream = dbus.receive_name_owner_changed().await?;
+
+        tokio::spawn(async move {
+            while let Some(signal) = name_owner_changed_stream.next().await {
+                let args = unwrap_or_log!(signal.args());
+
+                let name = args.name();
+                let old_owner = args.old_owner();
+
+                if old_owner.is_some() {
+                    connection
                         .object_server()
                         .await
                         .with(
@@ -54,19 +81,16 @@ impl StatusNotifierWatcher {
                             |_iface: InterfaceDeref<'_, StatusNotifierWatcher>, ctx| async move {
                                 StatusNotifierWatcher::status_notifier_item_unregistered(
                                     &ctx,
-                                    name.as_str(),
+                                    name.clone(),
                                 )
                                 .await
                             },
                         )
-                        .await.unwrap_or_else(|err| log::error!("{}", err));
-                    }
-                    .boxed();
+                        .await
+                        .unwrap_or_else(|err| log::error!("{}", err))
                 }
             }
-            futures::future::ready(()).boxed()
-        })
-        .await?;
+        });
 
         Ok(())
     }
@@ -79,28 +103,32 @@ impl StatusNotifierWatcher {
         #[zbus(signal_context)] ctx: SignalContext<'_>,
         service: &str,
     ) {
-        if self.insert_item(service) {
+        let bus_name = unwrap_or_log!(BusName::try_from(service));
+
+        if self.insert_item(bus_name) {
             Self::status_notifier_item_registered(&ctx, service)
                 .await
                 .unwrap_or_else(|err| log::error!("{}", err));
         }
     }
 
-    async fn register_status_notifier_host(&self, _service: &str) {}
-
-    #[dbus_interface(property)]
-    async fn registered_status_notifier_items(&self) -> Vec<String> {
-        let items = self.items.lock().unwrap();
-        items.iter().map(String::from).collect()
+    async fn register_status_notifier_host(&self, service: BusName<'_>) {
+        self.register_host(service);
     }
 
     #[dbus_interface(property)]
-    async fn is_status_notifier_host_registered(&self) -> bool {
-        true
+    fn registered_status_notifier_items(&self) -> Vec<&'_ str> {
+        let inner = self.inner.lock().unwrap();
+        inner.items.iter().map(|n| n.as_str()).collect()
     }
 
     #[dbus_interface(property)]
-    async fn protocol_version(&self) -> i32 {
+    fn is_status_notifier_host_registered(&self) -> bool {
+        self.is_host_registered()
+    }
+
+    #[dbus_interface(property)]
+    fn protocol_version(&self) -> i32 {
         0
     }
 

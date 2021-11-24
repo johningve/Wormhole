@@ -7,6 +7,7 @@ use self::{
 
 pub mod filechooser;
 pub mod notifications;
+pub mod statusnotifierhost;
 pub mod statusnotifierwatcher;
 
 pub const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";

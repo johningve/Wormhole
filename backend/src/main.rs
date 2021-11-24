@@ -7,6 +7,8 @@ use windows::Win32::{
 mod proxies;
 mod services;
 mod toasthelper;
+#[macro_use]
+mod util;
 mod vmcompute;
 mod vmsocket;
 mod wslpath;
