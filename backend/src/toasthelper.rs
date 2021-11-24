@@ -33,14 +33,13 @@ pub struct ToastHelper {
 impl ToastHelper {
     pub fn new(
         tag: &str,
-        distro: &str,
         summary: &str,
         body: &str,
         image: Option<&str>,
         actions: Vec<&str>,
     ) -> anyhow::Result<ToastHelper> {
         let image = if image.is_some() {
-            let image_path = wslpath::get_temp_copy(distro, image.unwrap())?;
+            let image_path = wslpath::get_temp_copy(image.unwrap())?;
             log::debug!("using image: {}", image_path.as_os_str().to_string_lossy());
             format!(
                 r#"<image placement="appLogoOverride" src="file://{}" />"#,

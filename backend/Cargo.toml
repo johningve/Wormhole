@@ -34,6 +34,7 @@ env_logger = "0.9.0"
 regex = "1.5"
 anyhow = "1.0"
 new_mime_guess = "3.0"
+once_cell = "1.8"
 
 zbus = { path = "../../zbus/zbus", features = ["tokio", "wsl"] }
 zvariant = { path = "../../zbus/zvariant" }

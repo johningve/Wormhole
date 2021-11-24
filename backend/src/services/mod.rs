@@ -2,20 +2,21 @@ use zbus::Connection;
 
 use self::{
     filechooser::FileChooser, notifications::Notifications,
-    statusnotifierwatcher::StatusNotifierWatcher,
+    status_notifier_host::StatusNotifierHost, status_notifier_watcher::StatusNotifierWatcher,
 };
 
 pub mod filechooser;
 pub mod notifications;
-pub mod statusnotifierhost;
-pub mod statusnotifierwatcher;
+pub mod status_notifier_host;
+pub mod status_notifier_watcher;
 
 pub const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 
-pub async fn init_all(connection: &Connection, distro: &str) -> zbus::Result<()> {
-    FileChooser::init(connection, distro).await?;
-    Notifications::init(connection, distro).await?;
-    StatusNotifierWatcher::init(connection, distro).await?;
+pub async fn init_all(connection: &Connection) -> zbus::Result<()> {
+    FileChooser::init(connection).await?;
+    Notifications::init(connection).await?;
+    StatusNotifierWatcher::init(connection).await?;
+    StatusNotifierHost::init(connection).await?;
 
     Ok(())
 }

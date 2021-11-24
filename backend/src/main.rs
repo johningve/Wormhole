@@ -1,3 +1,4 @@
+use once_cell::sync::OnceCell;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
@@ -12,6 +13,28 @@ mod util;
 mod vmcompute;
 mod vmsocket;
 mod wslpath;
+
+static CONFIG_INSTANCE: OnceCell<Config> = OnceCell::new();
+
+#[derive(Debug)]
+pub struct Config {
+    distro_name: String,
+    user_name: String,
+}
+
+impl Config {
+    pub fn global() -> &'static Self {
+        CONFIG_INSTANCE.get().expect("config is not initialized")
+    }
+
+    pub fn distro_name(&self) -> &str {
+        &self.distro_name
+    }
+
+    pub fn user_name(&self) -> &str {
+        &self.user_name
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,14 +63,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     offset += (&header_buffer[offset..]).read_line(&mut user_name).await?;
     (&header_buffer[offset..]).read_line(&mut home_path).await?;
 
+    distro_name = distro_name.trim_end().to_string();
+    user_name = user_name.trim_end().to_string();
+    home_path = home_path.trim_end().to_string();
+
+    CONFIG_INSTANCE
+        .set(Config {
+            distro_name: distro_name.clone(),
+            user_name: user_name.clone(),
+        })
+        .unwrap();
+
     // TODO: might want to make this a constant in a shared package
     stream.write_all(b"connect\r\n").await?;
 
-    std::env::set_var(
-        "ZBUS_WSL_HOME",
-        wslpath::to_windows(distro_name.trim_end(), home_path.trim_end()),
-    );
-    std::env::set_var("ZBUS_WSL_USER", user_name.trim_end());
+    std::env::set_var("ZBUS_WSL_HOME", wslpath::to_windows(&home_path));
+    std::env::set_var("ZBUS_WSL_USER", user_name);
 
     let connection = zbus::ConnectionBuilder::socket(stream)
         .internal_executor(false)
@@ -67,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .request_name("org.freedesktop.impl.portal.desktop.windows")
         .await?;
 
-    services::init_all(&connection, distro_name.trim_end()).await?;
+    services::init_all(&connection).await?;
 
     log::info!("all services initialized");
 

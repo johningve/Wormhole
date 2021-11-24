@@ -10,3 +10,11 @@ macro_rules! unwrap_or_log {
         }
     };
 }
+
+pub fn log_err<T>(e: T) -> T
+where
+    T: std::error::Error,
+{
+    log::error!("{}", e);
+    e
+}

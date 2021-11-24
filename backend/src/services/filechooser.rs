@@ -29,18 +29,14 @@ const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
 const IID_SHELL_ITEM: &str = "43826D1E-E718-42EE-BC55-A1E261C37BFE";
 
 #[derive(Default, Clone)]
-pub struct FileChooser {
-    distro: String,
-}
+pub struct FileChooser {}
 
 impl FileChooser {
-    pub async fn init(connection: &Connection, distro: &str) -> zbus::Result<()> {
-        connection.object_server_mut().await.at(
-            super::PORTAL_PATH,
-            FileChooser {
-                distro: distro.to_string(),
-            },
-        )?;
+    pub async fn init(connection: &Connection) -> zbus::Result<()> {
+        connection
+            .object_server_mut()
+            .await
+            .at(super::PORTAL_PATH, FileChooser {})?;
 
         log::info!("FileChooser portal enabled.");
 
@@ -95,7 +91,7 @@ impl FileChooser {
             let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
             let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
             unsafe { CoTaskMemFree(path_raw.0 as _) };
-            uris.push(String::from("file://") + &wslpath::to_wsl(&self.distro, Path::new(&path))?);
+            uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
         }
 
         let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
@@ -147,7 +143,7 @@ impl FileChooser {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
+                    wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
                     &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -163,7 +159,7 @@ impl FileChooser {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(&self.distro, &String::from_utf8(file)?).as_os_str(),
+                    wslpath::to_windows(&String::from_utf8(file)?).as_os_str(),
                     None,
                     &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -191,7 +187,7 @@ impl FileChooser {
         let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
         let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
         unsafe { CoTaskMemFree(path_raw.0 as _) };
-        let uri = String::from("file://") + &wslpath::to_wsl(&self.distro, Path::new(&path))?;
+        let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
 
         let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
 
@@ -237,7 +233,7 @@ impl FileChooser {
             unsafe {
                 let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
                 SHCreateItemFromParsingName(
-                    wslpath::to_windows(&self.distro, &String::from_utf8(folder)?).as_os_str(),
+                    wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
                     &GUID::from(IID_SHELL_ITEM),
                     item.as_mut_ptr() as _,
@@ -267,7 +263,7 @@ impl FileChooser {
                 todo!()
             }
 
-            uris.push(String::from("file://") + &wslpath::to_wsl(&self.distro, &full_path)?);
+            uris.push(String::from("file://") + &wslpath::to_wsl(&full_path)?);
         }
 
         let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;

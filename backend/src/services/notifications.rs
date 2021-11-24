@@ -32,13 +32,12 @@ struct NotificationsServiceData {
 }
 
 pub struct Notifications {
-    distro: String,
     icons: Box<IconsProxy<'static>>,
     data: Mutex<NotificationsServiceData>,
 }
 
 impl Notifications {
-    pub async fn init(connection: &Connection, distro: &str) -> zbus::Result<()> {
+    pub async fn init(connection: &Connection) -> zbus::Result<()> {
         connection
             .request_name("org.freedesktop.Notifications")
             .await?;
@@ -46,7 +45,6 @@ impl Notifications {
         connection.object_server_mut().await.at(
             "/org/freedesktop/Notifications",
             Notifications {
-                distro: distro.to_string(),
                 icons: Box::new(IconsProxy::new(connection).await?),
                 data: Mutex::new(NotificationsServiceData {
                     next_id: 1,
@@ -74,7 +72,6 @@ impl Notifications {
 
         let toast = ToastHelper::new(
             &id.to_string(),
-            &self.distro,
             notification.summary,
             notification.body,
             if !icon.is_empty() { Some(&icon) } else { None }, // cool

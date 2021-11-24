@@ -3,9 +3,11 @@ use regex::Regex;
 use std::path::{Component, Path, PathBuf, Prefix};
 use windows::Win32::Storage::FileSystem::GetLogicalDrives;
 
+use crate::Config;
+
 const WSL_DOMAIN: &str = "\\\\wsl.localhost";
 
-pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
+pub fn to_windows(mut wsl_path: &str) -> PathBuf {
     let mut win_path = PathBuf::new();
 
     if wsl_path.is_empty() {
@@ -22,7 +24,7 @@ pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
         }
     } else {
         win_path.push(WSL_DOMAIN);
-        win_path.push(distro);
+        win_path.push(Config::global().distro_name());
     }
 
     for part in wsl_path.split('/') {
@@ -32,7 +34,7 @@ pub fn to_windows(distro: &str, mut wsl_path: &str) -> PathBuf {
     win_path
 }
 
-pub fn to_wsl(distro: &str, win_path: &Path) -> anyhow::Result<String> {
+pub fn to_wsl(win_path: &Path) -> anyhow::Result<String> {
     let mut wsl_path = String::new();
     for component in win_path.components() {
         match component {
@@ -42,7 +44,7 @@ pub fn to_wsl(distro: &str, win_path: &Path) -> anyhow::Result<String> {
                 }
                 Prefix::UNC(server, share) => {
                     if server.to_string_lossy() != "wsl.localhost"
-                        || share.to_string_lossy() != distro
+                        || share.to_string_lossy() != Config::global().distro_name()
                     {
                         bail!("network share not supported: {:?}", component);
                     }
@@ -62,11 +64,11 @@ pub fn to_wsl(distro: &str, win_path: &Path) -> anyhow::Result<String> {
     Ok(wsl_path)
 }
 
-pub fn get_temp_copy(distro: &str, wsl_file_path: &str) -> std::io::Result<PathBuf> {
-    let win_src_path = to_windows(distro, wsl_file_path);
+pub fn get_temp_copy(wsl_file_path: &str) -> std::io::Result<PathBuf> {
+    let win_src_path = to_windows(wsl_file_path);
 
     let mut network_share = PathBuf::from(WSL_DOMAIN);
-    network_share.push(distro);
+    network_share.push(Config::global().distro_name());
 
     if !win_src_path.starts_with(&network_share) {
         return Ok(win_src_path);
@@ -110,6 +112,13 @@ impl LogicalDrives {
 mod tests {
     use super::*;
 
+    fn setup_config() -> Config {
+        Config {
+            distro_name: String::from("Ubuntu"),
+            user_name: String::from("test"),
+        }
+    }
+
     #[test]
     fn test_logical_drives_is_present() {
         assert!(LogicalDrives(4).is_present(b'c'));
@@ -118,28 +127,25 @@ mod tests {
 
     #[test]
     fn test_wsl_path_to_windows() {
+        crate::CONFIG_INSTANCE.get_or_init(setup_config);
+
         assert_eq!(
-            to_windows("Ubuntu", "/mnt/asdf/foo.txt"),
+            to_windows("/mnt/asdf/foo.txt"),
             PathBuf::from("\\\\wsl.localhost\\Ubuntu\\mnt\\asdf\\foo.txt")
         );
-        assert_eq!(
-            to_windows("Ubuntu", "/mnt/c/Users/"),
-            PathBuf::from("C:\\Users")
-        );
+        assert_eq!(to_windows("/mnt/c/Users/"), PathBuf::from("C:\\Users"));
     }
 
     #[test]
     fn test_win_path_to_wsl() {
+        crate::CONFIG_INSTANCE.get_or_init(setup_config);
+
         assert_eq!(
-            to_wsl("Ubuntu", &PathBuf::from("C:\\Users\\admin")).unwrap(),
+            to_wsl(&PathBuf::from("C:\\Users\\admin")).unwrap(),
             "/mnt/c/Users/admin"
         );
         assert_eq!(
-            to_wsl(
-                "Ubuntu",
-                &PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\admin")
-            )
-            .unwrap(),
+            to_wsl(&PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\admin")).unwrap(),
             "/home/admin"
         );
     }
