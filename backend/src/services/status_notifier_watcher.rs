@@ -108,16 +108,22 @@ impl StatusNotifierWatcher {
         let bus_name = BusName::try_from(service).map_err(|e| fdo::Error::Failed(e.to_string()))?;
 
         if self.insert_item(bus_name) {
-            Self::status_notifier_item_registered(&ctx, service)
-                .await
-                .map_err(util::log_err)?;
+            Self::status_notifier_item_registered(&ctx, service).await?;
+            Self::registered_status_notifier_items_changed(self, &ctx).await?;
         }
 
         Ok(())
     }
 
-    async fn register_status_notifier_host(&self, service: BusName<'_>) {
+    async fn register_status_notifier_host(
+        &self,
+        #[zbus(signal_context)] ctx: SignalContext<'_>,
+        service: BusName<'_>,
+    ) -> fdo::Result<()> {
         self.register_host(service);
+        Self::is_status_notifier_host_registered_changed(self, &ctx).await?;
+
+        Ok(())
     }
 
     #[dbus_interface(property)]

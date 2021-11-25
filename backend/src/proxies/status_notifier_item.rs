@@ -1,7 +1,10 @@
 use zbus::dbus_proxy;
 use zvariant::ObjectPath;
 
-#[dbus_proxy(interface = "org.freedesktop.StatusNotifierItem")]
+#[dbus_proxy(
+    interface = "org.freedesktop.StatusNotifierItem",
+    default_path = "/StatusNotifierItem"
+)]
 pub trait StatusNotifierItem {
     /// Describes the category of this item.
     #[dbus_proxy(property)]

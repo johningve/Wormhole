@@ -14,9 +14,9 @@ use crate::{
     },
 };
 
-#[derive(Default)]
 struct HostInner {
     items: HashMap<String, Indicator>,
+    connection: Connection,
 }
 
 #[derive(Clone)]
@@ -27,7 +27,10 @@ pub struct StatusNotifierHost {
 impl StatusNotifierHost {
     pub async fn init(connection: &Connection) -> zbus::Result<()> {
         let host = Self {
-            inner: Arc::new(Mutex::new(HostInner::default())),
+            inner: Arc::new(Mutex::new(HostInner {
+                connection: connection.clone(),
+                items: HashMap::new(),
+            })),
         };
 
         let watcher_proxy = StatusNotifierWatcherProxy::new(connection).await?;
@@ -65,7 +68,10 @@ impl StatusNotifierHost {
         let mut inner = self.inner.lock().unwrap();
         Ok(inner
             .items
-            .insert(service.to_string(), Indicator::new(service)?)
+            .insert(
+                service.to_string(),
+                Indicator::new(&inner.connection, service)?,
+            )
             .is_none())
     }
 
