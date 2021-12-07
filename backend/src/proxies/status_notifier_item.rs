@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
 use zbus::dbus_proxy;
 use zvariant::ObjectPath;
+use zvariant_derive::{OwnedValue, Type, Value};
 
 #[dbus_proxy(
     interface = "org.freedesktop.StatusNotifierItem",
@@ -35,7 +37,7 @@ pub trait StatusNotifierItem {
 
     /// Carries an ARGB32 binary representation of the icon.
     #[dbus_proxy(property)]
-    fn icon_pixmap(&self) -> zbus::Result<Vec<(i32, i32, Vec<u8>)>>;
+    fn icon_pixmap(&self) -> zbus::Result<Vec<Pixmap>>;
 
     /// The Freedesktop-compliant name of an icon.
     /// This can be used by the visualization to indicate extra state information,
@@ -45,7 +47,7 @@ pub trait StatusNotifierItem {
 
     /// ARGB32 binary representation of the overlay icon.
     #[dbus_proxy(property)]
-    fn overlay_icon_pixmap(&self) -> zbus::Result<Vec<(i32, i32, Vec<u8>)>>;
+    fn overlay_icon_pixmap(&self) -> zbus::Result<Vec<Pixmap>>;
 
     /// The Freedesktop-compliant name of an icon.
     /// This can be used by the visualization to indicate that the item is in RequestingAttention state.
@@ -54,7 +56,7 @@ pub trait StatusNotifierItem {
 
     /// ARGB32 binary representation of the requesting attention icon.
     #[dbus_proxy(property)]
-    fn attention_icon_pixmap(&self) -> zbus::Result<Vec<(i32, i32, Vec<u8>)>>;
+    fn attention_icon_pixmap(&self) -> zbus::Result<Vec<Pixmap>>;
 
     /// An item can also specify an animation associated to the RequestingAttention state.
     /// This should be either a Freedesktop-compliant icon name or a full path.
@@ -72,7 +74,7 @@ pub trait StatusNotifierItem {
     /// 4. Descriptive text for this tooltip. It can contain also a subset of the HTML markup language,
     ///    for a list of allowed tags see Section Markup.
     #[dbus_proxy(property)]
-    fn tool_tip(&self) -> zbus::Result<(String, Vec<(i32, i32, Vec<u8>)>, String, String)>;
+    fn tool_tip(&self) -> zbus::Result<ToolTip>;
 
     /// The item only support the context menu,
     /// the visualization should prefer showing the menu or sending ContextMenu() instead of Activate().
@@ -139,4 +141,19 @@ pub trait StatusNotifierItem {
     /// The item has a new status, that is passed as an argument of the signal.
     #[dbus_proxy(signal)]
     fn new_status(&self, status: &str) -> zbus::Result<()>;
+}
+
+#[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
+pub struct Pixmap {
+    width: i32,
+    height: i32,
+    image_data: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
+pub struct ToolTip {
+    icon_name: String,
+    icon_data: Vec<Pixmap>,
+    title: String,
+    description: String,
 }
