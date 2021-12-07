@@ -4,6 +4,14 @@ use std::{
 };
 
 use futures::StreamExt;
+use windows::Win32::{
+    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, PSTR, PWSTR, WPARAM},
+    System::LibraryLoader::GetModuleHandleA,
+    UI::WindowsAndMessaging::{
+        CreateWindowExA, DispatchMessageA, GetMessageA, RegisterClassA, TranslateMessage,
+        CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+    },
+};
 use zbus::Connection;
 
 use crate::{
@@ -13,6 +21,8 @@ use crate::{
         StatusNotifierWatcherProxy,
     },
 };
+
+const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";
 
 struct HostInner {
     items: HashMap<String, Indicator>,
@@ -62,6 +72,52 @@ impl StatusNotifierHost {
         }
 
         Ok(())
+    }
+
+    fn create_window() -> windows::runtime::Result<HWND> {
+        let instance = unsafe { GetModuleHandleA(None) };
+        let mut window_class = WNDCLASSA::default();
+        window_class.hInstance = instance;
+        window_class.lpfnWndProc = Some(Self::wndproc);
+        window_class.lpszClassName = PSTR(WINDOW_CLASS_NAME.as_ptr() as _);
+        unsafe { RegisterClassA(&window_class) };
+
+        let hwnd = unsafe {
+            CreateWindowExA(
+                WINDOW_EX_STYLE(0),
+                PSTR(WINDOW_CLASS_NAME.as_ptr() as _),
+                None,
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                None,
+                None,
+                instance,
+                std::ptr::null(),
+            )
+        };
+
+        std::thread::spawn(move || {
+            let mut msg = MSG::default();
+            unsafe {
+                while GetMessageA(&mut msg, None, 0, 0).into() {
+                    TranslateMessage(&msg);
+                    DispatchMessageA(&msg);
+                }
+            };
+        });
+
+        Ok(hwnd)
+    }
+
+    unsafe extern "system" fn wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
     }
 
     fn insert_item(&self, service: &str) -> anyhow::Result<bool> {
