@@ -2,7 +2,7 @@ use scopeguard::ScopeGuard;
 use std::{io, net, os::windows::prelude::FromRawSocket, sync::Once};
 use tokio::net::TcpStream;
 use uuid::Uuid;
-use windows::runtime::GUID;
+use windows::core::GUID;
 use windows::Win32::Networking::WinSock::{
     accept, bind, closesocket, connect, listen, socket, WSAGetLastError, AF_HYPERV, INVALID_SOCKET,
     SOCKADDR, SOCKET, SOCK_STREAM, SOMAXCONN,
@@ -11,8 +11,8 @@ use windows::Win32::Networking::WinSock::{
 struct HyperVSocketAddr {
     pub family: u32,
     pub _reserved: u16,
-    pub vm_id: windows::runtime::GUID,
-    pub service_id: windows::runtime::GUID,
+    pub vm_id: windows::core::GUID,
+    pub service_id: windows::core::GUID,
 }
 
 /// Initialise the network stack for Windows.

@@ -15,7 +15,7 @@ use crate::toasthelper::ToastHelper;
 enum ToastEvent {
     Activated(String),
     Dismissed(ToastDismissalReason),
-    Failed(windows::runtime::Error),
+    Failed(windows::core::Error),
 }
 
 enum NotificationClosedReason {

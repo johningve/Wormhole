@@ -41,9 +41,10 @@ zvariant = { path = "../../zbus/zvariant" }
 zvariant_derive = { path = "../../zbus/zvariant_derive" }
 
 [dependencies.windows]
-version = "0.26"
+version = "0.27"
 features = [
 	"std",
+	"alloc",
 	"Data_Xml_Dom",
 	"Foundation",
 	"UI_Notifications",

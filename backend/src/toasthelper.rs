@@ -1,5 +1,5 @@
 extern crate xml;
-use windows::runtime::{IInspectable, Interface, HSTRING};
+use windows::core::{IInspectable, Interface, HSTRING};
 use xml::escape::{escape_str_attribute, escape_str_pcdata};
 
 // You need to have the windows crate in your Cargo.toml
@@ -22,7 +22,7 @@ use windows::{
 };
 
 //https://social.msdn.microsoft.com/Forums/Windows/en-US/99e0d4bd-07cb-4ebd-8c92-c44ac6e7e5de/toast-notification-dismissed-event-handler-not-called-every-time?forum=windowsgeneraldevelopmentissues
-pub use windows::runtime::Error;
+pub use windows::core::Error;
 
 use crate::wslpath;
 
@@ -107,10 +107,7 @@ impl ToastHelper {
         Ok(ToastHelper { toast })
     }
 
-    pub fn on_activated(
-        &self,
-        callback: impl Fn(String) + 'static,
-    ) -> windows::runtime::Result<()> {
+    pub fn on_activated(&self, callback: impl Fn(String) + 'static) -> windows::core::Result<()> {
         self.toast.Activated(TypedEventHandler::new(
             move |_, result: &Option<IInspectable>| {
                 if let Some(result) = result {
@@ -126,7 +123,7 @@ impl ToastHelper {
     pub fn on_dismissed(
         &self,
         callback: impl Fn(ToastDismissalReason) + 'static,
-    ) -> windows::runtime::Result<()> {
+    ) -> windows::core::Result<()> {
         self.toast.Dismissed(TypedEventHandler::new(
             move |_, result: &Option<ToastDismissedEventArgs>| {
                 if let Some(_result) = result {
@@ -140,14 +137,14 @@ impl ToastHelper {
 
     pub fn on_failed(
         &self,
-        callback: impl Fn(windows::runtime::Error) + 'static,
-    ) -> windows::runtime::Result<()> {
+        callback: impl Fn(windows::core::Error) + 'static,
+    ) -> windows::core::Result<()> {
         self.toast.Failed(TypedEventHandler::new(
             move |_, result: &Option<ToastFailedEventArgs>| {
                 if let Some(result) = result {
-                    callback(windows::runtime::Error::new(
+                    callback(windows::core::Error::new(
                         result.ErrorCode().unwrap(),
-                        windows::runtime::HSTRING::from("failed to show ToastNotification"),
+                        windows::core::HSTRING::from("failed to show ToastNotification"),
                     ));
                 }
                 Ok(())
@@ -156,7 +153,7 @@ impl ToastHelper {
         Ok(())
     }
 
-    pub fn show(&self) -> windows::runtime::Result<()> {
+    pub fn show(&self) -> windows::core::Result<()> {
         // If you have a valid app id, (ie installed using wix) then use it here.
         let toast_notifier = ToastNotificationManager::CreateToastNotifierWithId(HSTRING::from(
             "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -167,7 +164,7 @@ impl ToastHelper {
         toast_notifier.Show(&self.toast)
     }
 
-    pub fn dismiss(&self) -> windows::runtime::Result<()> {
+    pub fn dismiss(&self) -> windows::core::Result<()> {
         let notification_history = ToastNotificationManager::History()?;
         notification_history.Remove(self.toast.Tag()?)
     }

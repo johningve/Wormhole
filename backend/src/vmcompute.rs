@@ -6,7 +6,7 @@ mod hcs {
     use serde::Deserialize;
     use uuid::Uuid;
     use widestring::{WideCStr, WideCString};
-    use windows::runtime::Handle;
+    use windows::core::Handle;
     use windows::Win32::System::{
         Com::CoTaskMemFree,
         LibraryLoader::{FreeLibrary, GetProcAddress, LoadLibraryA},

@@ -2,8 +2,8 @@ use std::{collections::HashMap, mem::MaybeUninit, path::Path};
 
 use regex::Regex;
 use widestring::WideCStr;
-use windows::runtime::Interface;
-use windows::runtime::GUID;
+use windows::core::Interface;
+use windows::core::GUID;
 use windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
@@ -274,7 +274,7 @@ impl FileChooser {
     fn add_choices(
         dialog: IFileDialogCustomize,
         choices: &'_ Vec<Choice>,
-    ) -> windows::runtime::Result<HashMap<u32, &'_ str>> {
+    ) -> windows::core::Result<HashMap<u32, &'_ str>> {
         let mut id_mapping = HashMap::new();
         let mut id = 0;
 
@@ -306,7 +306,7 @@ impl FileChooser {
         dialog: IFileDialogCustomize,
         choices: &Vec<Choice>,
         id_mapping: &HashMap<u32, &'_ str>,
-    ) -> windows::runtime::Result<Vec<(String, String)>> {
+    ) -> windows::core::Result<Vec<(String, String)>> {
         let mut choice_results = Vec::new();
 
         for (id, choice_id) in id_mapping {

@@ -81,7 +81,7 @@ impl StatusNotifierHost {
         Ok(())
     }
 
-    fn create_window(&self) -> windows::runtime::Result<HWND> {
+    fn create_window(&self) -> windows::core::Result<HWND> {
         let (mut send, recv) = mpsc::channel();
 
         let host = self.clone();
@@ -93,8 +93,7 @@ impl StatusNotifierHost {
 
             let instance = unsafe { GetModuleHandleA(None) };
             if instance.0 == 0 {
-                send.send(Err(windows::runtime::Error::from_win32()))
-                    .unwrap();
+                send.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
@@ -103,8 +102,7 @@ impl StatusNotifierHost {
             window_class.lpfnWndProc = Some(Self::wndproc);
             window_class.lpszClassName = PSTR(WINDOW_CLASS_NAME.as_ptr() as _);
             if unsafe { RegisterClassA(&window_class) } == 0 {
-                send.send(Err(windows::runtime::Error::from_win32()))
-                    .unwrap();
+                send.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
@@ -125,8 +123,7 @@ impl StatusNotifierHost {
                 )
             };
             if hwnd.0 == 0 {
-                send.send(Err(windows::runtime::Error::from_win32()))
-                    .unwrap();
+                send.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
