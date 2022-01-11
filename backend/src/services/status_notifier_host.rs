@@ -1,6 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
 };
 
 use futures::StreamExt;
@@ -8,8 +9,9 @@ use windows::Win32::{
     Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, PSTR, PWSTR, WPARAM},
     System::LibraryLoader::GetModuleHandleA,
     UI::WindowsAndMessaging::{
-        CreateWindowExA, DispatchMessageA, GetMessageA, RegisterClassA, TranslateMessage,
-        CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+        CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
+        RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WM_DESTROY,
+        WNDCLASSA, WS_OVERLAPPEDWINDOW,
     },
 };
 use zbus::Connection;
@@ -23,6 +25,11 @@ use crate::{
 };
 
 const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";
+
+// thread local storage of StatusNotifierHost such that wndproc can access it.
+thread_local! {
+    static HOST: RefCell<Option<StatusNotifierHost>> = RefCell::new(None)
+}
 
 struct HostInner {
     items: HashMap<String, Indicator>,
@@ -74,32 +81,58 @@ impl StatusNotifierHost {
         Ok(())
     }
 
-    fn create_window() -> windows::runtime::Result<HWND> {
-        let instance = unsafe { GetModuleHandleA(None) };
-        let mut window_class = WNDCLASSA::default();
-        window_class.hInstance = instance;
-        window_class.lpfnWndProc = Some(Self::wndproc);
-        window_class.lpszClassName = PSTR(WINDOW_CLASS_NAME.as_ptr() as _);
-        unsafe { RegisterClassA(&window_class) };
+    fn create_window(&self) -> windows::runtime::Result<HWND> {
+        let (mut send, recv) = mpsc::channel();
 
-        let hwnd = unsafe {
-            CreateWindowExA(
-                WINDOW_EX_STYLE(0),
-                PSTR(WINDOW_CLASS_NAME.as_ptr() as _),
-                None,
-                WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                None,
-                None,
-                instance,
-                std::ptr::null(),
-            )
-        };
+        let host = self.clone();
 
         std::thread::spawn(move || {
+            HOST.with(|c| {
+                c.borrow_mut().insert(host);
+            });
+
+            let instance = unsafe { GetModuleHandleA(None) };
+            if instance.0 == 0 {
+                send.send(Err(windows::runtime::Error::from_win32()))
+                    .unwrap();
+                return;
+            }
+
+            let mut window_class = WNDCLASSA::default();
+            window_class.hInstance = instance;
+            window_class.lpfnWndProc = Some(Self::wndproc);
+            window_class.lpszClassName = PSTR(WINDOW_CLASS_NAME.as_ptr() as _);
+            if unsafe { RegisterClassA(&window_class) } == 0 {
+                send.send(Err(windows::runtime::Error::from_win32()))
+                    .unwrap();
+                return;
+            }
+
+            let hwnd = unsafe {
+                CreateWindowExA(
+                    WINDOW_EX_STYLE(0),
+                    PSTR(WINDOW_CLASS_NAME.as_ptr() as _),
+                    None,
+                    WS_OVERLAPPEDWINDOW,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    None,
+                    None,
+                    instance,
+                    std::ptr::null(),
+                )
+            };
+            if hwnd.0 == 0 {
+                send.send(Err(windows::runtime::Error::from_win32()))
+                    .unwrap();
+                return;
+            }
+
+            send.send(Ok(hwnd)).unwrap();
+
+            // enter message loop
             let mut msg = MSG::default();
             unsafe {
                 while GetMessageA(&mut msg, None, 0, 0).into() {
@@ -109,7 +142,7 @@ impl StatusNotifierHost {
             };
         });
 
-        Ok(hwnd)
+        recv.recv().unwrap()
     }
 
     unsafe extern "system" fn wndproc(
@@ -118,6 +151,13 @@ impl StatusNotifierHost {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        match msg {
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                return LRESULT(0);
+            }
+            _ => DefWindowProcA(hwnd, msg, wparam, lparam),
+        }
     }
 
     fn insert_item(&self, service: &str) -> anyhow::Result<bool> {
