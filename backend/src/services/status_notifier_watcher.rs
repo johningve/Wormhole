@@ -11,8 +11,6 @@ use zbus::{
     Connection, InterfaceDeref, SignalContext,
 };
 
-use crate::util;
-
 const PATH: &str = "/StatusNotifierWatcher";
 
 #[derive(Default)]

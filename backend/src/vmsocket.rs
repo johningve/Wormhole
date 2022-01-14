@@ -27,7 +27,7 @@ fn init() {
 }
 
 fn winsock_error() -> std::io::Error {
-    std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() }.0)
+    std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() })
 }
 
 pub struct HyperVSocket(SOCKET);

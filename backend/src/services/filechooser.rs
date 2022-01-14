@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::MaybeUninit, path::Path};
+use std::{collections::HashMap, path::Path};
 
 use regex::Regex;
 use widestring::WideCStr;
@@ -60,14 +60,14 @@ impl FileChooser {
             unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
         }
 
-        let mut dialog_options = _FILEOPENDIALOGOPTIONS(unsafe { dialog.GetOptions() }? as _);
+        let mut dialog_options = unsafe { dialog.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
         if options.multiple.unwrap_or_default() {
-            dialog_options.0 |= FOS_ALLOWMULTISELECT.0;
+            dialog_options |= FOS_ALLOWMULTISELECT;
         }
         if options.directory.unwrap_or_default() {
-            dialog_options.0 |= FOS_PICKFOLDERS.0;
+            dialog_options |= FOS_PICKFOLDERS;
         }
-        unsafe { dialog.SetOptions(dialog_options.0 as _) }?;
+        unsafe { dialog.SetOptions(dialog_options as _) }?;
 
         let filters = options.filters.unwrap_or_default();
         // file_types must not be dropped before the dialog itself is dropped.
@@ -141,14 +141,11 @@ impl FileChooser {
 
         if let Some(folder) = options.current_folder {
             unsafe {
-                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
-                SHCreateItemFromParsingName(
+                let mut item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
-                    &GUID::from(IID_SHELL_ITEM),
-                    item.as_mut_ptr() as _,
                 )?;
-                folder_item = Some(item.assume_init());
+                folder_item = Some(item);
                 dialog.SetFolder(folder_item.unwrap())?;
             }
         }
@@ -157,14 +154,11 @@ impl FileChooser {
 
         if let Some(file) = options.current_file {
             unsafe {
-                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
-                SHCreateItemFromParsingName(
+                let mut item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(file)?).as_os_str(),
                     None,
-                    &GUID::from(IID_SHELL_ITEM),
-                    item.as_mut_ptr() as _,
                 )?;
-                file_item = Some(item.assume_init());
+                file_item = Some(item);
                 dialog.SetSaveAsItem(file_item.unwrap())?;
             }
         }
@@ -231,14 +225,11 @@ impl FileChooser {
 
         if let Some(folder) = options.current_folder {
             unsafe {
-                let mut item: MaybeUninit<IShellItem> = MaybeUninit::uninit();
-                SHCreateItemFromParsingName(
+                let mut item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
-                    &GUID::from(IID_SHELL_ITEM),
-                    item.as_mut_ptr() as _,
                 )?;
-                folder_item = Some(item.assume_init());
+                folder_item = Some(item);
                 dialog.SetFolder(folder_item.unwrap())?;
             }
         }

@@ -6,12 +6,12 @@ use std::{
 
 use futures::StreamExt;
 use windows::Win32::{
-    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, PSTR, PWSTR, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, PSTR, WPARAM},
     System::LibraryLoader::GetModuleHandleA,
     UI::WindowsAndMessaging::{
         CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
-        RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WM_DESTROY,
-        WNDCLASSA, WS_OVERLAPPEDWINDOW,
+        RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_DESTROY, WNDCLASSA,
+        WS_OVERLAPPEDWINDOW,
     },
 };
 use zbus::Connection;
@@ -108,7 +108,7 @@ impl StatusNotifierHost {
 
             let hwnd = unsafe {
                 CreateWindowExA(
-                    WINDOW_EX_STYLE(0),
+                    0,
                     PSTR(WINDOW_CLASS_NAME.as_ptr() as _),
                     None,
                     WS_OVERLAPPEDWINDOW,
