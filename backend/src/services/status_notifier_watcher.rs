@@ -40,7 +40,7 @@ impl StatusNotifierWatcher {
             });
         }
 
-        connection.object_server_mut().await.at(PATH, watcher)?;
+        connection.object_server().at(PATH, watcher).await?;
 
         Ok(())
     }
@@ -52,7 +52,7 @@ impl StatusNotifierWatcher {
 
     fn remove_item(&self, service: BusName<'_>) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        inner.items.remove(&service.into())
+        inner.items.remove(&OwnedBusName::from(service))
     }
 
     fn register_host(&self, service: BusName<'_>) {
@@ -75,20 +75,15 @@ impl StatusNotifierWatcher {
             let name = args.name();
 
             if args.old_owner().is_some() && self.remove_item(BusName::try_from(name)?) {
-                connection
+                let iface = connection
                     .object_server()
-                    .await
-                    .with(
-                        PATH,
-                        |_iface: InterfaceDeref<'_, StatusNotifierWatcher>, ctx| async move {
-                            StatusNotifierWatcher::status_notifier_item_unregistered(
-                                &ctx,
-                                name.as_str(),
-                            )
-                            .await
-                        },
-                    )
-                    .await?
+                    .interface::<_, StatusNotifierWatcher>(PATH)
+                    .await?;
+                StatusNotifierWatcher::status_notifier_item_unregistered(
+                    iface.signal_context(),
+                    name.as_str(),
+                )
+                .await?;
             }
         }
 

@@ -42,16 +42,19 @@ impl Notifications {
             .request_name("org.freedesktop.Notifications")
             .await?;
 
-        connection.object_server_mut().await.at(
-            "/org/freedesktop/Notifications",
-            Notifications {
-                icons: Box::new(IconsProxy::new(connection).await?),
-                data: Mutex::new(NotificationsServiceData {
-                    next_id: 1,
-                    notifications: BTreeMap::new(),
-                }),
-            },
-        )?;
+        connection
+            .object_server()
+            .at(
+                "/org/freedesktop/Notifications",
+                Notifications {
+                    icons: Box::new(IconsProxy::new(connection).await?),
+                    data: Mutex::new(NotificationsServiceData {
+                        next_id: 1,
+                        notifications: BTreeMap::new(),
+                    }),
+                },
+            )
+            .await?;
 
         log::info!("org.freedesktop.Notifications server enabled");
 

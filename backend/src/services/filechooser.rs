@@ -34,9 +34,9 @@ pub struct FileChooser {}
 impl FileChooser {
     pub async fn init(connection: &Connection) -> zbus::Result<()> {
         connection
-            .object_server_mut()
-            .await
-            .at(super::PORTAL_PATH, FileChooser {})?;
+            .object_server()
+            .at(super::PORTAL_PATH, FileChooser {})
+            .await?;
 
         log::info!("FileChooser portal enabled.");
 
