@@ -113,21 +113,17 @@ impl Notifications {
                 match event {
                     ToastEvent::Activated(action) => Self::action_invoked(&ctx, id, &action).await,
                     ToastEvent::Dismissed(reason) => {
-                        Self::notification_closed(
-                            &ctx,
-                            id,
-                            match reason {
-                                ToastDismissalReason::ApplicationHidden => {
-                                    NotificationClosedReason::Closed
-                                }
-                                ToastDismissalReason::TimedOut => NotificationClosedReason::Expired,
-                                ToastDismissalReason::UserCanceled => {
-                                    NotificationClosedReason::Dismissed
-                                }
-                                _ => NotificationClosedReason::Undefined,
-                            } as _,
-                        )
-                        .await
+                        let reason = if reason == ToastDismissalReason::ApplicationHidden {
+                            NotificationClosedReason::Closed
+                        } else if reason == ToastDismissalReason::TimedOut {
+                            NotificationClosedReason::Expired
+                        } else if reason == ToastDismissalReason::UserCanceled {
+                            NotificationClosedReason::Dismissed
+                        } else {
+                            NotificationClosedReason::Undefined
+                        };
+
+                        Self::notification_closed(&ctx, id, reason as _).await
                     }
                     ToastEvent::Failed(err) => {
                         log::error!("toast notification failed: {}", err);
