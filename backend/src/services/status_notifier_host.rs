@@ -6,12 +6,16 @@ use std::{
 
 use futures::StreamExt;
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, PSTR, WPARAM},
+    Foundation::{BOOL, HWND, LPARAM, LRESULT, PSTR, WPARAM},
     System::LibraryLoader::GetModuleHandleA,
-    UI::WindowsAndMessaging::{
-        CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
-        RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_DESTROY, WNDCLASSA,
-        WS_OVERLAPPEDWINDOW,
+    UI::{
+        Controls::RichEdit::WM_CONTEXTMENU,
+        Shell::{NINF_KEY, NIN_SELECT},
+        WindowsAndMessaging::{
+            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
+            RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_DESTROY, WM_LBUTTONUP,
+            WM_MBUTTONUP, WM_RBUTTONUP, WM_VSCROLL, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+        },
     },
 };
 use zbus::Connection;
@@ -88,7 +92,7 @@ impl StatusNotifierHost {
 
         std::thread::spawn(move || {
             HOST.with(|c| {
-                c.borrow_mut().insert(host);
+                let _ = c.borrow_mut().insert(host);
             });
 
             let instance = unsafe { GetModuleHandleA(None) };
@@ -131,8 +135,15 @@ impl StatusNotifierHost {
 
             // enter message loop
             let mut msg = MSG::default();
+            let mut ret: BOOL;
             unsafe {
-                while GetMessageA(&mut msg, None, 0, 0).into() {
+                loop {
+                    ret = GetMessageA(&mut msg, None, 0, 0);
+                    if ret == BOOL(0) {
+                        break;
+                    } else if ret == BOOL(-1) {
+                        panic!("{}", windows::core::Error::from_win32());
+                    }
                     TranslateMessage(&msg);
                     DispatchMessageA(&msg);
                 }
@@ -153,19 +164,27 @@ impl StatusNotifierHost {
                 PostQuitMessage(0);
                 return LRESULT(0);
             }
+            WM_LBUTTONUP => {}
+            WM_MBUTTONUP => {}
+            WM_RBUTTONUP => {}
+            WM_CONTEXTMENU => {}
+            NIN_SELECT | NINF_KEY => {}
+            // TODO: might be able to do scroll through WM_INPUT:
+            // https://github.com/File-New-Project/EarTrumpet/blob/36e716c7fe4b375274f20229431f0501fe130460/EarTrumpet/UI/Helpers/ShellNotifyIcon.cs#L146
             _ => DefWindowProcA(hwnd, msg, wparam, lparam),
         }
     }
 
     fn insert_item(&self, service: &str) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
-        Ok(inner
-            .items
-            .insert(
-                service.to_string(),
-                Indicator::new(&inner.connection, service)?,
-            )
-            .is_none())
+        // Ok(inner
+        //     .items
+        //     .insert(
+        //         service.to_string(),
+        //         Indicator::new(&inner.connection, service)?,
+        //     )
+        //     .is_none())
+        Ok(false)
     }
 
     fn remove_item(&self, service: &str) -> bool {
