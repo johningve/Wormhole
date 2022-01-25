@@ -20,12 +20,11 @@ use windows::Win32::{
 };
 use zbus::Connection;
 
-use crate::{
-    indicator::Indicator,
-    proxies::status_notifier_watcher::{
-        StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
-        StatusNotifierWatcherProxy,
-    },
+use super::indicator::Indicator;
+
+use crate::proxies::status_notifier_watcher::{
+    StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
+    StatusNotifierWatcherProxy,
 };
 
 const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";

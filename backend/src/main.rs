@@ -1,19 +1,15 @@
 use once_cell::sync::OnceCell;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use util::{vmcompute, vmsocket, wslpath};
 use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
 
-mod indicator;
 mod proxies;
 mod services;
-mod toasthelper;
 #[macro_use]
 mod util;
-mod vmcompute;
-mod vmsocket;
-mod wslpath;
 
 static CONFIG_INSTANCE: OnceCell<Config> = OnceCell::new();
 

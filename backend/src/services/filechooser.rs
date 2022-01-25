@@ -20,7 +20,7 @@ use zbus::{dbus_interface, Connection};
 use zvariant::OwnedObjectPath;
 use zvariant_derive::{DeserializeDict, SerializeDict, Type, TypeDict};
 
-use crate::wslpath;
+use crate::util::wslpath;
 
 // TODO: replace when windows-rs provides these instead.
 const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";

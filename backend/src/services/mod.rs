@@ -2,13 +2,12 @@ use zbus::Connection;
 
 use self::{
     filechooser::FileChooser, notifications::Notifications,
-    status_notifier_host::StatusNotifierHost, status_notifier_watcher::StatusNotifierWatcher,
+    status_notifier::host::StatusNotifierHost, status_notifier::watcher::StatusNotifierWatcher,
 };
 
 pub mod filechooser;
 pub mod notifications;
-pub mod status_notifier_host;
-pub mod status_notifier_watcher;
+pub mod status_notifier;
 
 pub const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 

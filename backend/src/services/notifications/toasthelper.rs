@@ -24,7 +24,7 @@ use windows::{
 //https://social.msdn.microsoft.com/Forums/Windows/en-US/99e0d4bd-07cb-4ebd-8c92-c44ac6e7e5de/toast-notification-dismissed-event-handler-not-called-every-time?forum=windowsgeneraldevelopmentissues
 pub use windows::core::Error;
 
-use crate::wslpath;
+use crate::util::wslpath;
 
 pub struct ToastHelper {
     toast: ToastNotification,

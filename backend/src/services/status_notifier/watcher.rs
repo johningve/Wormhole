@@ -8,7 +8,7 @@ use futures::StreamExt;
 use zbus::{
     dbus_interface, fdo,
     names::{BusName, OwnedBusName},
-    Connection, InterfaceDeref, SignalContext,
+    Connection, SignalContext,
 };
 
 const PATH: &str = "/StatusNotifierWatcher";

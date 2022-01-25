@@ -1,3 +1,5 @@
+mod toasthelper;
+
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Mutex,
@@ -9,8 +11,8 @@ use windows::UI::Notifications::ToastDismissalReason;
 use zbus::{dbus_interface, Connection, SignalContext};
 use zvariant_derive::Type;
 
+use self::toasthelper::ToastHelper;
 use crate::proxies::icons::IconsProxy;
-use crate::toasthelper::ToastHelper;
 
 enum ToastEvent {
     Activated(String),

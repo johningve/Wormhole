@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use scopeguard::defer;
 use windows::Win32::{
     Foundation::HWND,
@@ -12,11 +10,10 @@ use windows::Win32::{
         WindowsAndMessaging::{CreateIconIndirect, DestroyIcon, HICON, ICONINFO},
     },
 };
-use zbus::Connection;
 
 use crate::proxies::status_notifier_item::StatusNotifierItemProxy;
 
-pub struct IndicatorInner {
+pub struct Indicator {
     id: u32,
     hwnd: HWND,
     icon: Icon,
@@ -24,49 +21,25 @@ pub struct IndicatorInner {
     shown: bool,
 }
 
-pub struct Indicator {
-    inner: Arc<Mutex<IndicatorInner>>,
-}
-
 impl Indicator {
-    pub fn new(
-        hwnd: HWND,
-        connection: &Connection,
-        id: u32,
-        service: &str,
-    ) -> anyhow::Result<Self> {
-        let mut indicator = Indicator {
-            inner: Arc::new(Mutex::new(IndicatorInner {
-                id,
-                hwnd,
-                icon: Icon::default(),
-                tooltip: String::from(""),
-                shown: false,
-            })),
-        };
-
-        tokio::spawn(indicator.init(&connection.clone(), &service.to_owned()));
-
-        Ok(indicator)
-    }
-
-    pub async fn init(&self, connection: &Connection, service: &str) {
-        let item_proxy = StatusNotifierItemProxy::builder(connection)
-            .destination(service)?
-            .build()
-            .await;
+    pub fn new(hwnd: HWND, id: u32, proxy: StatusNotifierItemProxy<'static>) -> Self {
+        Indicator {
+            id,
+            hwnd,
+            icon: Icon::default(),
+            tooltip: String::from(""),
+            shown: false,
+        }
     }
 
     fn update(&self, icon: Icon, tooltip: &str) {
-        let mut inner = self.inner.lock().unwrap();
-
         let mut data = NOTIFYICONDATAA::default();
         data.cbSize = std::mem::size_of::<NOTIFYICONDATAA>() as _;
         data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
 
-        data.uID = inner.id;
-        data.hWnd = inner.hwnd;
+        data.uID = self.id;
+        data.hWnd = self.hwnd;
         data.hIcon = icon.0;
         for (i, c) in data.szInfo.iter().enumerate() {
             if i < tooltip.len() {
@@ -74,7 +47,7 @@ impl Indicator {
             }
         }
 
-        let success = if !inner.shown {
+        let success = if !self.shown {
             unsafe { Shell_NotifyIconA(NIM_ADD, &data) }.as_bool()
                 && unsafe { Shell_NotifyIconA(NIM_SETVERSION, &data) }.as_bool()
         } else {
@@ -85,22 +58,20 @@ impl Indicator {
             log::error!("Failed to show icon!");
         }
 
-        inner.tooltip = tooltip.to_string();
-        inner.icon = icon;
-        inner.shown = true;
+        self.tooltip = tooltip.to_string();
+        self.icon = icon;
+        self.shown = true;
     }
 }
 
 impl Drop for Indicator {
     fn drop(&mut self) {
-        let mut inner = self.inner.try_lock().unwrap();
-
         let mut data = NOTIFYICONDATAA::default();
         data.cbSize = std::mem::size_of::<NOTIFYICONDATAA>() as _;
         data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-        data.uID = inner.id;
-        data.hWnd = inner.hwnd;
+        data.uID = self.id;
+        data.hWnd = self.hwnd;
 
         unsafe { Shell_NotifyIconA(NIM_DELETE, &data) };
     }

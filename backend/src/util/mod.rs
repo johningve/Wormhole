@@ -1,3 +1,7 @@
+pub mod vmcompute;
+pub mod vmsocket;
+pub mod wslpath;
+
 #[macro_export]
 macro_rules! unwrap_or_log {
     ( $e:expr ) => {
