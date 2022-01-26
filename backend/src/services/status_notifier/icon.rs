@@ -20,6 +20,7 @@ impl Icon {
         self.0
     }
 
+    // TODO: I think the network order ARGB32 might be equivalent to what GDI wants...
     pub fn from_argb32_network_order(
         dc: HDC,
         width: u32,
