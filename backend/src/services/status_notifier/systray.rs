@@ -2,7 +2,7 @@ use windows::Win32::{
     Foundation::HWND,
     UI::Shell::{
         Shell_NotifyIconA, NIF_ICON, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-        NIM_SETVERSION, NOTIFYICONDATAA, NOTIFYICON_VERSION_4,
+        NIM_SETVERSION, NOTIFYICONDATAA, NOTIFYICONDATAA_0, NOTIFYICON_VERSION_4,
     },
 };
 
@@ -28,21 +28,29 @@ impl SysTrayIcon {
         }
     }
 
-    pub fn update(&self, icon: Option<Icon>, tooltip: Option<&str>) {
-        let mut data = NOTIFYICONDATAA::default();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAA>() as _;
-        data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
-        data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+    pub fn update(&mut self, icon: Option<Icon>, tooltip: Option<&str>) {
+        let mut data = NOTIFYICONDATAA {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
+            uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+            Anonymous: NOTIFYICONDATAA_0 {
+                uVersion: NOTIFYICON_VERSION_4,
+            },
+            uID: self.id,
+            hWnd: self.hwnd,
+            ..Default::default()
+        };
 
-        data.uID = self.id;
-        data.hWnd = self.hwnd;
-        data.hIcon = icon.unwrap_or(self.icon).handle();
+        data.hIcon = if icon.is_some() {
+            icon.as_ref().unwrap().0
+        } else {
+            self.icon.0
+        };
 
-        if tooltip.is_some() {
-            self.tooltip = tooltip.unwrap().to_string();
+        if let Some(tooltip) = tooltip {
+            self.tooltip = tooltip.to_string();
         }
 
-        for (i, c) in data.szInfo.iter().enumerate() {
+        for (i, c) in data.szInfo.iter_mut().enumerate() {
             if i < self.tooltip.len() {
                 c.0 = self.tooltip.as_bytes()[i];
             }
@@ -70,12 +78,15 @@ impl SysTrayIcon {
 
 impl Drop for SysTrayIcon {
     fn drop(&mut self) {
-        let mut data = NOTIFYICONDATAA::default();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAA>() as _;
-        data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
-        data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-        data.uID = self.id;
-        data.hWnd = self.hwnd;
+        let mut data = NOTIFYICONDATAA {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
+            Anonymous: NOTIFYICONDATAA_0 {
+                uVersion: NOTIFYICON_VERSION_4,
+            },
+            uID: self.id,
+            hWnd: self.hwnd,
+            ..Default::default()
+        };
 
         unsafe { Shell_NotifyIconA(NIM_DELETE, &data) };
     }

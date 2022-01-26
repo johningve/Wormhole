@@ -25,6 +25,7 @@ struct IndicatorInner {
     proxy: StatusNotifierItemProxy<'static>,
 }
 
+#[derive(Clone)]
 pub struct Indicator(Arc<Mutex<IndicatorInner>>);
 
 impl Indicator {
@@ -33,12 +34,15 @@ impl Indicator {
         id: u32,
         proxy: StatusNotifierItemProxy<'static>,
     ) -> anyhow::Result<Self> {
-        let mut indicator = Self(Arc::new(Mutex::new(IndicatorInner {
+        let indicator = Self(Arc::new(Mutex::new(IndicatorInner {
             icon: SysTrayIcon::new(hwnd, id),
             proxy,
         })));
 
-        tokio::spawn(indicator.handle_updates());
+        {
+            let indicator = indicator.clone();
+            tokio::spawn(async move { indicator.handle_updates().await });
+        }
 
         Ok(indicator)
     }
@@ -112,7 +116,7 @@ fn get_icon(hwnd: HWND, icon_path: &Path, icon_pixmaps: Vec<Pixmap>) -> anyhow::
         Icon::from_bgra(dc, image.width(), image.height(), &image)?
     } else {
         // TODO: smarter selection
-        let pixmap = icon_pixmaps[0];
+        let pixmap = icon_pixmaps.get(0).unwrap();
         Icon::from_argb32_network_order(
             dc,
             pixmap.width as _,

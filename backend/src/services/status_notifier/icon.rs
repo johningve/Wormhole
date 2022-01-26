@@ -5,7 +5,7 @@ use windows::Win32::{
 };
 
 #[derive(Default)]
-pub struct Icon(HICON);
+pub struct Icon(pub HICON);
 
 impl Drop for Icon {
     fn drop(&mut self) {
@@ -50,19 +50,23 @@ impl Icon {
         height: u32,
         bgra_bytes: &[u8],
     ) -> windows::core::Result<Self> {
-        let icon_info = ICONINFO::default();
+        let mut icon_info = ICONINFO::default();
 
         icon_info.hbmColor =
             unsafe { CreateBitmap(width as _, height as _, 1, 32, bgra_bytes.as_ptr() as _) };
+
         if icon_info.hbmColor.is_invalid() {
             return Err(windows::core::Error::from_win32());
         }
-        defer! {unsafe {DeleteObject(icon_info.hbmColor)};}
 
         icon_info.hbmMask = unsafe { CreateCompatibleBitmap(dc, width as _, height as _) };
+
+        defer! {unsafe {DeleteObject(icon_info.hbmColor)};}
+
         if icon_info.hbmMask.is_invalid() {
             return Err(windows::core::Error::from_win32());
         }
+
         defer! {unsafe {DeleteObject(icon_info.hbmMask)};}
 
         let icon = unsafe { CreateIconIndirect(&icon_info) };

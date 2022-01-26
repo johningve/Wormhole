@@ -161,7 +161,6 @@ impl StatusNotifierHost {
         match msg {
             WM_DESTROY => {
                 PostQuitMessage(0);
-                return LRESULT(0);
             }
             WM_LBUTTONUP => {}
             WM_MBUTTONUP => {}
@@ -170,8 +169,9 @@ impl StatusNotifierHost {
             NIN_SELECT | NINF_KEY => {}
             // TODO: might be able to do scroll through WM_INPUT:
             // https://github.com/File-New-Project/EarTrumpet/blob/36e716c7fe4b375274f20229431f0501fe130460/EarTrumpet/UI/Helpers/ShellNotifyIcon.cs#L146
-            _ => DefWindowProcA(hwnd, msg, wparam, lparam),
-        }
+            _ => return DefWindowProcA(hwnd, msg, wparam, lparam),
+        };
+        return LRESULT(0);
     }
 
     fn insert_item(&self, service: &str) -> anyhow::Result<bool> {
