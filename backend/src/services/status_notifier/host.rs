@@ -20,7 +20,7 @@ use windows::Win32::{
 };
 use zbus::Connection;
 
-use super::indicator::Indicator;
+use super::systray::SysTrayIcon;
 
 use crate::proxies::status_notifier_watcher::{
     StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
@@ -35,7 +35,7 @@ thread_local! {
 }
 
 struct HostInner {
-    items: HashMap<String, Indicator>,
+    items: HashMap<String, SysTrayIcon>,
     connection: Connection,
 }
 

@@ -145,15 +145,15 @@ pub trait StatusNotifierItem {
 
 #[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
 pub struct Pixmap {
-    width: i32,
-    height: i32,
-    image_data: Vec<u8>,
+    pub width: i32,
+    pub height: i32,
+    pub image_data: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
 pub struct ToolTip {
-    icon_name: String,
-    icon_data: Vec<Pixmap>,
-    title: String,
-    description: String,
+    pub icon_name: String,
+    pub icon_data: Vec<Pixmap>,
+    pub title: String,
+    pub description: String,
 }

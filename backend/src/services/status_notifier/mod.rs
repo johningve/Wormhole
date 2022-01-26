@@ -3,3 +3,4 @@ pub mod watcher;
 
 mod icon;
 mod indicator;
+mod systray;

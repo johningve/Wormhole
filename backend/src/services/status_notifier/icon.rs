@@ -20,31 +20,39 @@ impl Icon {
         self.0
     }
 
-    pub fn from_argb(
+    pub fn from_argb32_network_order(
         dc: HDC,
         width: u32,
         height: u32,
         argb_bytes: &[u8],
     ) -> windows::core::Result<Self> {
         // based on https://stackoverflow.com/a/62614596/16076168
-        let icon_info = ICONINFO::default();
-
-        let mut raw_bitmap = vec![0u32; argb_bytes.len() / 4];
+        let mut bgra_bytes = vec![0u8; argb_bytes.len()];
 
         for y in 0..height {
             for x in 0..width {
                 let index = (x + y * width) as usize;
                 let base = index * 4;
-                let a = argb_bytes[base] as u32;
-                let r = argb_bytes[base + 1] as u32;
-                let g = argb_bytes[base + 2] as u32;
-                let b = argb_bytes[base + 3] as u32;
-                raw_bitmap[index] = (a << 24) | (r << 16) | (g << 8) | b; // the result should be BRGA
+                bgra_bytes[base + 3] = argb_bytes[base]; // a
+                bgra_bytes[base + 2] = argb_bytes[base + 1]; // r
+                bgra_bytes[base + 1] = argb_bytes[base + 2]; // g
+                bgra_bytes[base] = argb_bytes[base + 3]; // b
             }
         }
 
+        Self::from_bgra(dc, width, height, &bgra_bytes)
+    }
+
+    pub fn from_bgra(
+        dc: HDC,
+        width: u32,
+        height: u32,
+        bgra_bytes: &[u8],
+    ) -> windows::core::Result<Self> {
+        let icon_info = ICONINFO::default();
+
         icon_info.hbmColor =
-            unsafe { CreateBitmap(width as _, height as _, 1, 32, raw_bitmap.as_ptr() as _) };
+            unsafe { CreateBitmap(width as _, height as _, 1, 32, bgra_bytes.as_ptr() as _) };
         if icon_info.hbmColor.is_invalid() {
             return Err(windows::core::Error::from_win32());
         }
