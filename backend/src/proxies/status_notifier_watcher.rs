@@ -1,8 +1,8 @@
 use zbus::dbus_proxy;
 
 #[dbus_proxy(
-    interface = "org.freedesktop.StatusNotifierWatcher",
-    default_service = "org.freedesktop.StatusNotifierWatcher",
+    interface = "org.kde.StatusNotifierWatcher",
+    default_service = "org.kde.StatusNotifierWatcher",
     default_path = "/StatusNotifierWatcher"
 )]
 pub trait StatusNotifierWatcher {

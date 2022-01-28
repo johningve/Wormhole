@@ -95,7 +95,7 @@ impl StatusNotifierWatcher {
     }
 }
 
-#[dbus_interface(name = "org.freedesktop.StatusNotifierWatcher")]
+#[dbus_interface(name = "org.kde.StatusNotifierWatcher")]
 impl StatusNotifierWatcher {
     async fn register_status_notifier_item(
         &self,

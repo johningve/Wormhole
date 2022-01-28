@@ -4,7 +4,7 @@ use zvariant::ObjectPath;
 use zvariant_derive::{OwnedValue, Type, Value};
 
 #[dbus_proxy(
-    interface = "org.freedesktop.StatusNotifierItem",
+    interface = "org.kde.StatusNotifierItem",
     default_path = "/StatusNotifierItem"
 )]
 pub trait StatusNotifierItem {
