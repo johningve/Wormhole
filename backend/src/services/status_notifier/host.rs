@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
+    convert::TryFrom,
     sync::{mpsc, Arc, Mutex},
 };
 
@@ -18,13 +19,16 @@ use windows::Win32::{
         },
     },
 };
-use zbus::Connection;
+use zbus::{names::BusName, Connection};
 
-use super::systray::SysTrayIcon;
+use super::{indicator::Indicator, systray::SysTrayIcon};
 
-use crate::proxies::status_notifier_watcher::{
-    StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
-    StatusNotifierWatcherProxy,
+use crate::proxies::{
+    status_notifier_item::StatusNotifierItemProxy,
+    status_notifier_watcher::{
+        StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
+        StatusNotifierWatcherProxy,
+    },
 };
 
 const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";
@@ -35,23 +39,29 @@ thread_local! {
 }
 
 struct HostInner {
-    items: HashMap<String, SysTrayIcon>,
-    connection: Connection,
+    nextID: u32,
+    items: HashMap<String, Indicator>,
 }
 
 #[derive(Clone)]
 pub struct StatusNotifierHost {
+    connection: Connection,
+    hwnd: HWND,
     inner: Arc<Mutex<HostInner>>,
 }
 
 impl StatusNotifierHost {
-    pub async fn init(connection: &Connection) -> zbus::Result<()> {
-        let host = Self {
+    pub async fn init(connection: &Connection) -> anyhow::Result<()> {
+        let mut host = Self {
+            connection: connection.clone(),
+            hwnd: HWND::default(),
             inner: Arc::new(Mutex::new(HostInner {
-                connection: connection.clone(),
+                nextID: 0,
                 items: HashMap::new(),
             })),
         };
+
+        host.hwnd = host.create_window()?;
 
         let watcher_proxy = StatusNotifierWatcherProxy::new(connection).await?;
 
@@ -80,6 +90,11 @@ impl StatusNotifierHost {
                     .unwrap_or_else(|e| log::error!("{}", e))
             });
         }
+
+        // TODO: replace literal with constant
+        watcher_proxy
+            .register_status_notifier_host("org.freedesktop.impl.portal.desktop.windows")
+            .await?;
 
         Ok(())
     }
@@ -174,16 +189,17 @@ impl StatusNotifierHost {
         return LRESULT(0);
     }
 
-    fn insert_item(&self, service: &str) -> anyhow::Result<bool> {
+    fn insert_item(&self, proxy: StatusNotifierItemProxy<'static>) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
-        // Ok(inner
-        //     .items
-        //     .insert(
-        //         service.to_string(),
-        //         Indicator::new(&inner.connection, service)?,
-        //     )
-        //     .is_none())
-        Ok(false)
+        let id = inner.nextID;
+        inner.nextID += 1;
+        Ok(inner
+            .items
+            .insert(
+                proxy.destination().to_string(),
+                Indicator::new(self.hwnd, id, proxy)?,
+            )
+            .is_none())
     }
 
     fn remove_item(&self, service: &str) -> bool {
@@ -197,7 +213,15 @@ impl StatusNotifierHost {
     ) -> anyhow::Result<()> {
         while let Some(signal) = stream.next().await {
             let args = signal.args()?;
-            if let Err(e) = self.insert_item(args.service()) {
+
+            log::debug!("handle_item_registered: {}", args.service());
+
+            let proxy = StatusNotifierItemProxy::builder(&self.connection)
+                .destination(BusName::try_from(args.service().to_string())?)?
+                .build()
+                .await?;
+
+            if let Err(e) = self.insert_item(proxy) {
                 log::error!("{}", e);
             }
         }
@@ -211,6 +235,9 @@ impl StatusNotifierHost {
     ) -> anyhow::Result<()> {
         while let Some(signal) = stream.next().await {
             let args = signal.args()?;
+
+            log::debug!("handle_item_unregistered: {}", args.service());
+
             self.remove_item(args.service());
         }
 

@@ -44,6 +44,11 @@ impl Indicator {
             tokio::spawn(async move { indicator.handle_updates().await });
         }
 
+        {
+            let indicator = indicator.clone();
+            tokio::spawn(async move { indicator.update().await.unwrap() });
+        }
+
         Ok(indicator)
     }
 

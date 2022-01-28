@@ -11,7 +11,7 @@ pub mod status_notifier;
 
 pub const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 
-pub async fn init_all(connection: &Connection) -> zbus::Result<()> {
+pub async fn init_all(connection: &Connection) -> anyhow::Result<()> {
     FileChooser::init(connection).await?;
     Notifications::init(connection).await?;
     StatusNotifierWatcher::init(connection).await?;

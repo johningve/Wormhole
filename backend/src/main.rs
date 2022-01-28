@@ -94,6 +94,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     connection
         .request_name("org.freedesktop.impl.portal.desktop.windows")
         .await?;
+    connection
+        .request_name("org.freedesktop.StatusNotifierWatcher")
+        .await?;
 
     services::init_all(&connection).await?;
 
@@ -103,6 +106,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     connection
         .release_name("org.freedesktop.impl.portal.desktop.windows")
+        .await?;
+    connection
+        .release_name("org.freedesktop.StatusNotifierWatcher")
         .await?;
 
     Ok(())

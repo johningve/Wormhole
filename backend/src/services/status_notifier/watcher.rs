@@ -46,21 +46,25 @@ impl StatusNotifierWatcher {
     }
 
     fn insert_item(&self, service: BusName<'_>) -> bool {
+        log::debug!("insert_item: {}", service);
         let mut inner = self.inner.lock().unwrap();
         inner.items.insert(service.into())
     }
 
     fn remove_item(&self, service: BusName<'_>) -> bool {
+        log::debug!("remove_item: {}", service);
         let mut inner = self.inner.lock().unwrap();
         inner.items.remove(&OwnedBusName::from(service))
     }
 
     fn register_host(&self, service: BusName<'_>) {
+        log::debug!("register_host: {}", service);
         let mut inner = self.inner.lock().unwrap();
         inner.host = Some(service.into());
     }
 
     fn is_host_registered(&self) -> bool {
+        log::debug!("is_host_registered");
         let inner = self.inner.lock().unwrap();
         inner.host.is_some()
     }
