@@ -26,8 +26,6 @@ use crate::util::wslpath;
 const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";
 const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
 
-const IID_SHELL_ITEM: &str = "43826D1E-E718-42EE-BC55-A1E261C37BFE";
-
 #[derive(Default, Clone)]
 pub struct FileChooser {}
 
@@ -45,9 +43,9 @@ impl FileChooser {
 
     fn open_file_sync(
         &self,
-        handle: OwnedObjectPath,
-        app_id: &str,
-        parent_window: &str,
+        _handle: OwnedObjectPath,
+        _app_id: &str,
+        _parent_window: &str,
         title: &str,
         options: OpenFileOptions,
     ) -> anyhow::Result<OpenFileResults> {
@@ -118,9 +116,9 @@ impl FileChooser {
 
     fn save_file_sync(
         &self,
-        handle: OwnedObjectPath,
-        app_id: &str,
-        parent_window: &str,
+        _handle: OwnedObjectPath,
+        _app_id: &str,
+        _parent_window: &str,
         title: &str,
         options: SaveFileOptions,
     ) -> anyhow::Result<SaveFileResults> {
@@ -141,7 +139,7 @@ impl FileChooser {
 
         if let Some(folder) = options.current_folder {
             unsafe {
-                let mut item: IShellItem = SHCreateItemFromParsingName(
+                let item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
                 )?;
@@ -154,7 +152,7 @@ impl FileChooser {
 
         if let Some(file) = options.current_file {
             unsafe {
-                let mut item: IShellItem = SHCreateItemFromParsingName(
+                let item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(file)?).as_os_str(),
                     None,
                 )?;
@@ -206,9 +204,9 @@ impl FileChooser {
 
     fn save_files_sync(
         &self,
-        handle: OwnedObjectPath,
-        app_id: &str,
-        parent_window: &str,
+        _handle: OwnedObjectPath,
+        _app_id: &str,
+        _parent_window: &str,
         title: &str,
         options: SaveFilesOptions,
     ) -> anyhow::Result<SaveFilesResults> {
@@ -225,7 +223,7 @@ impl FileChooser {
 
         if let Some(folder) = options.current_folder {
             unsafe {
-                let mut item: IShellItem = SHCreateItemFromParsingName(
+                let item: IShellItem = SHCreateItemFromParsingName(
                     wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
                     None,
                 )?;
@@ -264,7 +262,7 @@ impl FileChooser {
 
     fn add_choices(
         dialog: IFileDialogCustomize,
-        choices: &'_ Vec<Choice>,
+        choices: &[Choice],
     ) -> windows::core::Result<HashMap<u32, &'_ str>> {
         let mut id_mapping = HashMap::new();
         let mut id = 0;
@@ -295,7 +293,7 @@ impl FileChooser {
 
     fn read_choices(
         dialog: IFileDialogCustomize,
-        choices: &Vec<Choice>,
+        choices: &[Choice],
         id_mapping: &HashMap<u32, &'_ str>,
     ) -> windows::core::Result<Vec<(String, String)>> {
         let mut choice_results = Vec::new();

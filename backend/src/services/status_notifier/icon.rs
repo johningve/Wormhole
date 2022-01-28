@@ -5,7 +5,7 @@ use windows::Win32::{
 };
 
 #[derive(Default)]
-pub struct Icon(pub HICON);
+pub struct Icon(HICON);
 
 impl Drop for Icon {
     fn drop(&mut self) {
@@ -44,6 +44,7 @@ impl Icon {
         Self::from_bgra(dc, width, height, &bgra_bytes)
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     pub fn from_bgra(
         dc: HDC,
         width: u32,

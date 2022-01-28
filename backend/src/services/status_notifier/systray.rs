@@ -41,9 +41,9 @@ impl SysTrayIcon {
         };
 
         data.hIcon = if icon.is_some() {
-            icon.as_ref().unwrap().0
+            icon.as_ref().unwrap().handle()
         } else {
-            self.icon.0
+            self.icon.handle()
         };
 
         if let Some(tooltip) = tooltip {
@@ -70,15 +70,15 @@ impl SysTrayIcon {
         self.shown = true;
 
         // must swap icon late so that the old icon is dropped last
-        if icon.is_some() {
-            self.icon = icon.unwrap();
+        if let Some(icon) = icon {
+            self.icon = icon;
         }
     }
 }
 
 impl Drop for SysTrayIcon {
     fn drop(&mut self) {
-        let mut data = NOTIFYICONDATAA {
+        let data = NOTIFYICONDATAA {
             cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
             Anonymous: NOTIFYICONDATAA_0 {
                 uVersion: NOTIFYICON_VERSION_4,

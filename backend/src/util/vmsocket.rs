@@ -39,6 +39,7 @@ impl Drop for HyperVSocket {
 }
 
 impl HyperVSocket {
+    #[allow(dead_code)]
     pub fn bind(vmid: Uuid, port: u32) -> io::Result<HyperVSocket> {
         init();
         let local_addr = get_addr(vmid, port);
@@ -74,6 +75,7 @@ impl HyperVSocket {
         Ok(HyperVSocket(fd))
     }
 
+    #[allow(dead_code)]
     pub fn accept(&self) -> std::io::Result<TcpStream> {
         let fd = unsafe { accept(self.0, std::ptr::null_mut(), std::ptr::null_mut()) };
         if fd == INVALID_SOCKET {

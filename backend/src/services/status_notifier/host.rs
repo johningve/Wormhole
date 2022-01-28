@@ -15,13 +15,13 @@ use windows::Win32::{
         WindowsAndMessaging::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
             RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_DESTROY, WM_LBUTTONUP,
-            WM_MBUTTONUP, WM_RBUTTONUP, WM_VSCROLL, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+            WM_MBUTTONUP, WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
 use zbus::{names::BusName, Connection};
 
-use super::{indicator::Indicator, systray::SysTrayIcon};
+use super::indicator::Indicator;
 
 use crate::proxies::{
     status_notifier_item::StatusNotifierItemProxy,
@@ -39,7 +39,7 @@ thread_local! {
 }
 
 struct HostInner {
-    nextID: u32,
+    next_id: u32,
     items: HashMap<String, Indicator>,
 }
 
@@ -56,7 +56,7 @@ impl StatusNotifierHost {
             connection: connection.clone(),
             hwnd: HWND::default(),
             inner: Arc::new(Mutex::new(HostInner {
-                nextID: 0,
+                next_id: 0,
                 items: HashMap::new(),
             })),
         };
@@ -100,7 +100,7 @@ impl StatusNotifierHost {
     }
 
     fn create_window(&self) -> windows::core::Result<HWND> {
-        let (mut send, recv) = mpsc::channel();
+        let (send, recv) = mpsc::channel();
 
         let host = self.clone();
 
@@ -115,10 +115,13 @@ impl StatusNotifierHost {
                 return;
             }
 
-            let mut window_class = WNDCLASSA::default();
-            window_class.hInstance = instance;
-            window_class.lpfnWndProc = Some(Self::wndproc);
-            window_class.lpszClassName = PSTR(WINDOW_CLASS_NAME.as_ptr() as _);
+            let window_class = WNDCLASSA {
+                hInstance: instance,
+                lpfnWndProc: Some(Self::wndproc),
+                lpszClassName: PSTR(WINDOW_CLASS_NAME.as_ptr() as _),
+                ..Default::default()
+            };
+
             if unsafe { RegisterClassA(&window_class) } == 0 {
                 send.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
@@ -186,13 +189,13 @@ impl StatusNotifierHost {
             // https://github.com/File-New-Project/EarTrumpet/blob/36e716c7fe4b375274f20229431f0501fe130460/EarTrumpet/UI/Helpers/ShellNotifyIcon.cs#L146
             _ => return DefWindowProcA(hwnd, msg, wparam, lparam),
         };
-        return LRESULT(0);
+        LRESULT(0)
     }
 
     fn insert_item(&self, proxy: StatusNotifierItemProxy<'static>) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
-        let id = inner.nextID;
-        inner.nextID += 1;
+        let id = inner.next_id;
+        inner.next_id += 1;
         Ok(inner
             .items
             .insert(

@@ -15,6 +15,7 @@ macro_rules! unwrap_or_log {
     };
 }
 
+#[allow(dead_code)]
 pub fn log_err<T>(e: T) -> T
 where
     T: std::error::Error,
