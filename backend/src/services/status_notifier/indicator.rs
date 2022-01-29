@@ -16,7 +16,7 @@ use crate::{
         icons::IconsProxy,
         status_notifier_item::{Pixmap, StatusNotifierItemProxy},
     },
-    util::wslpath,
+    util::{log_err, wslpath},
 };
 
 use super::{icon::Icon, systray::SysTrayIcon};
@@ -33,7 +33,7 @@ pub struct Indicator(Arc<Mutex<IndicatorInner>>);
 impl Indicator {
     pub fn new(
         hwnd: HWND,
-        id: u32,
+        id: u16,
         proxy: StatusNotifierItemProxy<'static>,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = oneshot::channel();
@@ -124,6 +124,29 @@ impl Indicator {
         if let Some(tx) = inner.close.take() {
             let _ = tx.send(());
         }
+    }
+
+    pub fn id(&self) -> u16 {
+        let inner = self.0.lock().unwrap();
+        inner.icon.id
+    }
+
+    pub async fn activate(&self, x: i32, y: i32) -> zbus::Result<()> {
+        log::debug!("activate: ({}, {})", x, y);
+        let proxy = {
+            let inner = self.0.lock().unwrap();
+            inner.proxy.clone()
+        };
+        proxy.activate(x, y).await
+    }
+
+    pub async fn secondary_activate(&self, x: i32, y: i32) -> zbus::Result<()> {
+        log::debug!("secondary_activate: ({}, {})", x, y);
+        let proxy = {
+            let inner = self.0.lock().unwrap();
+            inner.proxy.clone()
+        };
+        proxy.secondary_activate(x, y).await
     }
 }
 

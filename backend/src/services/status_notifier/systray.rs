@@ -1,16 +1,18 @@
 use windows::Win32::{
     Foundation::HWND,
     UI::Shell::{
-        Shell_NotifyIconA, NIF_ICON, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-        NIM_SETVERSION, NOTIFYICONDATAA, NOTIFYICONDATAA_0, NOTIFYICON_VERSION_4,
+        Shell_NotifyIconA, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
+        NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAA, NOTIFYICONDATAA_0, NOTIFYICON_VERSION_4,
     },
 };
+
+use crate::services::status_notifier::host::WMAPP_NOTIFYCALLBACK;
 
 use super::icon::Icon;
 
 /// Indicator is responsible for displaying an application indicator in the notification area.
 pub struct SysTrayIcon {
-    pub id: u32,
+    pub id: u16,
     pub hwnd: HWND,
     icon: Icon,
     tooltip: String,
@@ -18,7 +20,7 @@ pub struct SysTrayIcon {
 }
 
 impl SysTrayIcon {
-    pub fn new(hwnd: HWND, id: u32) -> Self {
+    pub fn new(hwnd: HWND, id: u16) -> Self {
         SysTrayIcon {
             id,
             hwnd,
@@ -33,11 +35,12 @@ impl SysTrayIcon {
 
         let mut data = NOTIFYICONDATAA {
             cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
-            uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+            uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP | NIF_MESSAGE,
+            uCallbackMessage: WMAPP_NOTIFYCALLBACK,
             Anonymous: NOTIFYICONDATAA_0 {
                 uVersion: NOTIFYICON_VERSION_4,
             },
-            uID: self.id,
+            uID: self.id as _,
             hWnd: self.hwnd,
             ..Default::default()
         };
@@ -84,10 +87,11 @@ impl Drop for SysTrayIcon {
 
         let data = NOTIFYICONDATAA {
             cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
+            uCallbackMessage: WMAPP_NOTIFYCALLBACK,
             Anonymous: NOTIFYICONDATAA_0 {
                 uVersion: NOTIFYICON_VERSION_4,
             },
-            uID: self.id,
+            uID: self.id as _,
             hWnd: self.hwnd,
             ..Default::default()
         };
