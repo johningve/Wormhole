@@ -29,6 +29,8 @@ impl SysTrayIcon {
     }
 
     pub fn update(&mut self, icon: Option<Icon>, tooltip: Option<&str>) {
+        log::debug!("update");
+
         let mut data = NOTIFYICONDATAA {
             cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
             uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP,
@@ -78,6 +80,8 @@ impl SysTrayIcon {
 
 impl Drop for SysTrayIcon {
     fn drop(&mut self) {
+        log::debug!("drop");
+
         let data = NOTIFYICONDATAA {
             cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
             Anonymous: NOTIFYICONDATAA_0 {

@@ -207,7 +207,11 @@ impl StatusNotifierHost {
 
     fn remove_item(&self, service: &str) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        inner.items.remove(service).is_some()
+        inner
+            .items
+            .remove(service)
+            .map(Indicator::unregister)
+            .is_some()
     }
 
     async fn handle_item_registered(
@@ -241,7 +245,9 @@ impl StatusNotifierHost {
 
             log::debug!("handle_item_unregistered: {}", args.service());
 
-            self.remove_item(args.service());
+            if self.remove_item(args.service()) {
+                log::debug!("{} removed", args.service());
+            }
         }
 
         Ok(())

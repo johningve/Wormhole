@@ -5,6 +5,7 @@ use std::{
 
 use futures::StreamExt;
 use scopeguard::defer;
+use tokio::sync::oneshot;
 use windows::Win32::{
     Foundation::HWND,
     Graphics::Gdi::{GetDC, ReleaseDC},
@@ -23,6 +24,7 @@ use super::{icon::Icon, systray::SysTrayIcon};
 struct IndicatorInner {
     icon: SysTrayIcon,
     proxy: StatusNotifierItemProxy<'static>,
+    close: Option<oneshot::Sender<()>>,
 }
 
 #[derive(Clone)]
@@ -34,14 +36,17 @@ impl Indicator {
         id: u32,
         proxy: StatusNotifierItemProxy<'static>,
     ) -> anyhow::Result<Self> {
+        let (tx, rx) = oneshot::channel();
+
         let indicator = Self(Arc::new(Mutex::new(IndicatorInner {
             icon: SysTrayIcon::new(hwnd, id),
             proxy,
+            close: Some(tx),
         })));
 
         {
             let indicator = indicator.clone();
-            tokio::spawn(async move { indicator.handle_updates().await });
+            tokio::spawn(async move { indicator.handle_updates(rx).await });
         }
 
         {
@@ -53,7 +58,7 @@ impl Indicator {
     }
 
     // TODO: figure out how to handle errors from this task
-    async fn handle_updates(&self) {
+    async fn handle_updates(&self, mut rx: oneshot::Receiver<()>) {
         let proxy = { self.0.lock().unwrap().proxy.clone() };
 
         let mut new_status_stream = proxy.receive_new_status().await.unwrap();
@@ -67,12 +72,15 @@ impl Indicator {
             s = new_icon_stream.next() => s.is_some(),
             s = new_attention_icon_stream.next() => s.is_some(),
             s = new_tooltip_stream.next() => s.is_some(),
+            _ = &mut rx => false,
         } {
             self.update().await.unwrap();
         }
     }
 
     async fn update(&self) -> anyhow::Result<()> {
+        log::debug!("update");
+
         let (proxy, hwnd) = {
             let inner = self.0.lock().unwrap();
             (inner.proxy.clone(), inner.icon.hwnd)
@@ -106,6 +114,16 @@ impl Indicator {
             .update(Some(icon), Some(&tooltip_text));
 
         Ok(())
+    }
+
+    pub fn unregister(self) {
+        let mut inner = self.0.lock().unwrap();
+
+        log::debug!("unregister");
+
+        if let Some(tx) = inner.close.take() {
+            let _ = tx.send(());
+        }
     }
 }
 
