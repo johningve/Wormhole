@@ -1242,6 +1242,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "hex",
+ "lazy_static",
  "nix",
  "once_cell",
  "ordered-stream",
@@ -1251,6 +1252,7 @@ dependencies = [
  "sha1",
  "static_assertions",
  "tokio",
+ "winapi",
  "zbus_macros",
  "zbus_names",
  "zvariant",
@@ -1278,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "zvariant"
-version = "3.0.0"
+version = "3.1.2"
 dependencies = [
  "byteorder",
  "enumflags2",
@@ -1290,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "zvariant_derive"
-version = "3.0.0"
+version = "3.1.2"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",

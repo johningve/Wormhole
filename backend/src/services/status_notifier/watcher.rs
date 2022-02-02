@@ -76,6 +76,21 @@ impl StatusNotifierWatcher {
         while let Some(signal) = name_owner_changed_stream.next().await {
             let args = signal.args()?;
 
+            log::debug!(
+                "name_owner_changed ({}): old: {}, new: {}",
+                args.name(),
+                if let Some(old) = args.old_owner().as_deref() {
+                    old.to_string()
+                } else {
+                    String::from("None")
+                },
+                if let Some(new) = args.new_owner().as_deref() {
+                    new.to_string()
+                } else {
+                    String::from("None")
+                },
+            );
+
             let name = args.name();
 
             if args.old_owner().is_some() && self.remove_item(BusName::try_from(name)?) {
@@ -102,6 +117,7 @@ impl StatusNotifierWatcher {
         #[zbus(signal_context)] ctx: SignalContext<'_>,
         service: &str,
     ) -> fdo::Result<()> {
+        log::debug!("register_status_notifier_item: {}", service);
         let bus_name = BusName::try_from(service).map_err(|e| fdo::Error::Failed(e.to_string()))?;
 
         if self.insert_item(bus_name) {

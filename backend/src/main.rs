@@ -12,6 +12,10 @@ mod services;
 mod util;
 
 static CONFIG_INSTANCE: OnceCell<Config> = OnceCell::new();
+static WELL_KNOWN_NAMES: &[&str] = &[
+    "org.freedesktop.impl.portal.desktop.windows",
+    "org.kde.StatusNotifierWatcher",
+];
 
 #[derive(Debug)]
 pub struct Config {
@@ -91,12 +95,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    connection
-        .request_name("org.freedesktop.impl.portal.desktop.windows")
-        .await?;
-    connection
-        .request_name("org.kde.StatusNotifierWatcher")
-        .await?;
+    for name in WELL_KNOWN_NAMES {
+        connection.request_name(*name).await?;
+    }
 
     services::init_all(&connection).await?;
 
@@ -104,12 +105,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     handle.await?;
 
-    connection
-        .release_name("org.freedesktop.impl.portal.desktop.windows")
-        .await?;
-    connection
-        .release_name("org.kde.StatusNotifierWatcher")
-        .await?;
+    for name in WELL_KNOWN_NAMES {
+        connection.release_name(*name).await?;
+    }
 
     Ok(())
 }
