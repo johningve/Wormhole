@@ -16,7 +16,7 @@ use crate::{
         icons::IconsProxy,
         status_notifier_item::{Pixmap, StatusNotifierItemProxy},
     },
-    util::{log_err, wslpath},
+    util::wslpath,
 };
 
 use super::{icon::Icon, systray::SysTrayIcon};
@@ -86,17 +86,19 @@ impl Indicator {
             (inner.proxy.clone(), inner.icon.hwnd)
         };
 
-        let status = proxy.status().await?;
-        let tooltip = proxy.tool_tip().await?;
+        // FIXME: might want to be more careful unwrapping these.
+        // Errors could be useful.
+        let status = proxy.status().await.unwrap_or_default();
+        let tooltip = proxy.tool_tip().await.unwrap_or_default();
         let icon_name = if status == "NeedsAttention" {
-            proxy.attention_icon_name().await?
+            proxy.attention_icon_name().await.unwrap_or_default()
         } else {
-            proxy.icon_name().await?
+            proxy.icon_name().await.unwrap_or_default()
         };
         let icon_pixmap = if status == "NeedsAttention" {
-            proxy.attention_icon_pixmap().await?
+            proxy.attention_icon_pixmap().await.unwrap_or_default()
         } else {
-            proxy.icon_pixmap().await?
+            proxy.icon_pixmap().await.unwrap_or_default()
         };
 
         let icons_proxy = IconsProxy::new(proxy.connection()).await?;
