@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use zbus::{dbus_interface, Connection};
 use zvariant::OwnedObjectPath;
-use zvariant_derive::{DeserializeDict, SerializeDict, Type, TypeDict};
+use zvariant_derive::{DeserializeDict, SerializeDict, Type};
 
 use crate::util::wslpath;
 
@@ -532,7 +532,8 @@ pub struct Choice {
     initial_selection: String,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct OpenFileOptions {
     accept_label: Option<String>,
     modal: Option<bool>,
@@ -543,7 +544,8 @@ pub struct OpenFileOptions {
     choices: Option<Vec<Choice>>,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct OpenFileResults {
     uris: Vec<String>,
     choices: Vec<(String, String)>,
@@ -551,7 +553,8 @@ pub struct OpenFileResults {
     writable: Option<bool>,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct SaveFileOptions {
     accept_label: Option<String>,
     modal: Option<bool>,
@@ -564,14 +567,16 @@ pub struct SaveFileOptions {
     current_file: Option<Vec<u8>>,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct SaveFileResults {
     uris: Vec<String>,
     choices: Vec<(String, String)>,
     current_filter: Option<FileFilter>,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct SaveFilesOptions {
     handle_token: Option<String>,
     accept_label: Option<String>,
@@ -581,7 +586,8 @@ pub struct SaveFilesOptions {
     files: Option<Vec<Vec<u8>>>,
 }
 
-#[derive(DeserializeDict, SerializeDict, TypeDict, Clone, Debug, Default)]
+#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
+#[zvariant(signature = "dict")]
 pub struct SaveFilesResults {
     uris: Vec<String>,
     choices: Vec<(String, String)>,

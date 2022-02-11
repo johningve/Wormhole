@@ -143,14 +143,14 @@ pub trait StatusNotifierItem {
     fn new_status(&self, status: &str) -> zbus::Result<()>;
 }
 
-#[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
+#[derive(Default, Serialize, Deserialize, Type, Value, OwnedValue)]
 pub struct Pixmap {
     pub width: i32,
     pub height: i32,
     pub image_data: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Type, Value, OwnedValue)]
+#[derive(Default, Serialize, Deserialize, Type, Value, OwnedValue)]
 pub struct ToolTip {
     pub icon_name: String,
     pub icon_data: Vec<Pixmap>,
