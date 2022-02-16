@@ -1,3 +1,5 @@
+use windows::Win32::Foundation::{ERROR_SUCCESS, WIN32_ERROR};
+
 pub mod vmcompute;
 pub mod vmsocket;
 pub mod wslpath;
@@ -22,4 +24,13 @@ where
 {
     log::error!("{}", e);
     e
+}
+
+pub fn as_win32_result(err: WIN32_ERROR) -> windows::core::Result<()> {
+    match err {
+        ERROR_SUCCESS => Ok(()),
+        _ => Err(windows::core::Error::fast_error(
+            windows::core::HRESULT::from_win32(err),
+        )),
+    }
 }

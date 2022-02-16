@@ -12,10 +12,13 @@ mod services;
 mod util;
 
 static CONFIG_INSTANCE: OnceCell<Config> = OnceCell::new();
-static WELL_KNOWN_NAMES: &[&str] = &[
+
+const WELL_KNOWN_NAMES: &[&str] = &[
     "org.freedesktop.impl.portal.desktop.windows",
     "org.kde.StatusNotifierWatcher",
 ];
+
+pub const REGISTRY_ROOT_KEY: &str = "Software\\DesktopPortalWSL";
 
 #[derive(Debug)]
 pub struct Config {
