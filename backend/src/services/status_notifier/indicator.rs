@@ -148,7 +148,12 @@ impl Indicator {
             let inner = self.0.lock().unwrap();
             inner.proxy.clone()
         };
-        proxy.secondary_activate(x, y).await
+
+        if proxy.item_is_menu().await.unwrap_or_default() {
+            proxy.context_menu(x, y).await
+        } else {
+            proxy.secondary_activate(x, y).await
+        }
     }
 }
 
