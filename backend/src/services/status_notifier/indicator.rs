@@ -58,7 +58,7 @@ impl Indicator {
     }
 
     // TODO: figure out how to handle errors from this task
-    async fn handle_updates(&self, mut rx: oneshot::Receiver<()>) {
+    async fn handle_updates(&self, mut close: oneshot::Receiver<()>) {
         let proxy = { self.0.lock().unwrap().proxy.clone() };
 
         let mut new_status_stream = proxy.receive_new_status().await.unwrap();
@@ -72,7 +72,7 @@ impl Indicator {
             s = new_icon_stream.next() => s.is_some(),
             s = new_attention_icon_stream.next() => s.is_some(),
             s = new_tooltip_stream.next() => s.is_some(),
-            _ = &mut rx => false,
+            _ = &mut close => false,
         } {
             self.update().await.unwrap();
         }

@@ -10,16 +10,15 @@
 //! section of the zbus documentation.
 //!
 
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::TryFrom};
 
 use serde::{Deserialize, Serialize};
 use zbus::{
     dbus_proxy,
-    names::OwnedBusName,
     zvariant::{OwnedValue, Type, Value},
     Result,
 };
-use zvariant::{DeserializeDict, SerializeDict};
+use zvariant::{DeserializeDict, Optional, SerializeDict};
 
 #[dbus_proxy(interface = "com.canonical.dbusmenu")]
 trait DBusMenu {
@@ -61,7 +60,7 @@ trait DBusMenu {
     #[dbus_proxy(signal)]
     fn items_properties_updated(
         &self,
-        updated_properties: Vec<(i32, Properties)>,
+        updated_properties: Vec<(i32, HashMap<String, OwnedValue>)>,
         removed_properties: Vec<(i32, Vec<String>)>,
     ) -> Result<()>;
 
@@ -86,46 +85,21 @@ trait DBusMenu {
     fn version(&self) -> Result<u32>;
 }
 
-#[derive(Default, Serialize, Deserialize, Type, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Type, Value, OwnedValue, Clone, Debug)]
 pub struct LayoutItem {
-    id: i32,
-    properties: Properties,
-    children: Vec<OwnedValue>, // cannot use Vec<Self>, as that causes a stack overflow when generating the signature
+    pub id: i32,
+    pub properties: HashMap<String, OwnedValue>,
+    pub children: Vec<OwnedValue>, // cannot use Vec<Self>, as that causes a stack overflow when generating the signature
 }
 
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct Properties {
-    #[zvariant(rename = "type")]
-    type_: Option<String>,
-    // is the menu item shown
-    visible: Option<bool>,
-    // is the menu item clickable?
-    enabled: Option<bool>,
-    // menu item label
-    label: Option<String>,
-    icon_name: Option<String>,
-    icon_data: Option<OwnedValue>,
-    toggle_type: Option<ToggleType>,
-    toggle_state: Option<ToggleState>,
-    // most likely unset or set to "submenu"
-    children_display: Option<String>,
-    shortcut: Option<Vec<Vec<String>>>,
-    disposition: Option<String>,
-    accessible_desc: Option<String>,
-}
+impl LayoutItem {
+    pub fn children(&self) -> zbus::Result<Vec<Self>> {
+        let mut children = Vec::new();
 
-#[derive(Deserialize, Serialize, Type, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum ToggleType {
-    Checkmark,
-    Radio,
-}
+        for child in &self.children {
+            children.push(Self::try_from(child.clone())?);
+        }
 
-#[derive(Deserialize, Serialize, Type, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum ToggleState {
-    Checked,
-    Unchecked,
-    Unknown,
+        Ok(children)
+    }
 }

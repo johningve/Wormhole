@@ -33,6 +33,7 @@ use super::indicator::Indicator;
 
 use crate::{
     proxies::{
+        menu::DBusMenuProxy,
         status_notifier_item::StatusNotifierItemProxy,
         status_notifier_watcher::{
             StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
@@ -49,7 +50,11 @@ const INDICATORS_KEY: &str = "Indicators";
 
 pub const WMAPP_NOTIFYCALLBACK: u32 = WM_APP + 1;
 
-// thread local storage of StatusNotifierHost such that wndproc can access it.
+// this effectively allocates 100 menu ids per application.
+// should be enough :^)
+pub const MENU_IDS_PER_APP: u16 = 100;
+
+//
 thread_local! {
     static TX: RefCell<Option<tokio::sync::mpsc::Sender<(WPARAM, LPARAM)>>> = RefCell::new(None)
 }
@@ -113,7 +118,7 @@ impl StatusNotifierHost {
             let host = host.clone();
             tokio::spawn(async move {
                 while let Some((wparam, lparam)) = rx.recv().await {
-                    if let Err(e) = host.handle_callback(wparam, lparam).await {
+                    if let Err(e) = host.handle_notify_callback(wparam, lparam).await {
                         log::error!("handle_callback errored: {}", e);
                     }
                 }
@@ -129,18 +134,21 @@ impl StatusNotifierHost {
     }
 
     fn create_window(
-        tx: tokio::sync::mpsc::Sender<(WPARAM, LPARAM)>,
+        notify_tx: tokio::sync::mpsc::Sender<(WPARAM, LPARAM)>,
     ) -> windows::core::Result<HWND> {
-        let (send, recv) = mpsc::channel();
+        // channel to communicate with window thread
+        let (tx, rx) = mpsc::channel();
 
+        // must create a new thread for window
         std::thread::spawn(move || {
+            // install the sender for the notify callback channel
             TX.with(|c| {
-                let _ = c.borrow_mut().insert(tx);
+                let _ = c.borrow_mut().insert(notify_tx);
             });
 
             let instance = unsafe { GetModuleHandleA(None) };
             if instance.0 == 0 {
-                send.send(Err(windows::core::Error::from_win32())).unwrap();
+                tx.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
@@ -152,7 +160,7 @@ impl StatusNotifierHost {
             };
 
             if unsafe { RegisterClassA(&window_class) } == 0 {
-                send.send(Err(windows::core::Error::from_win32())).unwrap();
+                tx.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
@@ -173,11 +181,11 @@ impl StatusNotifierHost {
                 )
             };
             if hwnd.0 == 0 {
-                send.send(Err(windows::core::Error::from_win32())).unwrap();
+                tx.send(Err(windows::core::Error::from_win32())).unwrap();
                 return;
             }
 
-            send.send(Ok(hwnd)).unwrap();
+            tx.send(Ok(hwnd)).unwrap();
 
             // enter message loop
             let mut msg = MSG::default();
@@ -196,7 +204,7 @@ impl StatusNotifierHost {
             };
         });
 
-        recv.recv().unwrap()
+        rx.recv().unwrap()
     }
 
     unsafe extern "system" fn wndproc(
@@ -220,7 +228,7 @@ impl StatusNotifierHost {
         LRESULT(0)
     }
 
-    async fn handle_callback(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
+    async fn handle_notify_callback(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
         let id = (lparam.0 >> 16) as u16;
 
         let x = (wparam.0 >> 16) as i32;
@@ -286,6 +294,8 @@ impl StatusNotifierHost {
                 .destination(BusName::try_from(args.service().to_string())?)?
                 .build()
                 .await?;
+
+            inspect_menu(&proxy).await?;
 
             let id = proxy.id().await?;
 
@@ -400,4 +410,16 @@ fn get_id(app_id: &str) -> windows::core::Result<u16> {
         }
         Err(e) => Err(e),
     }
+}
+
+async fn inspect_menu(item_proxy: &StatusNotifierItemProxy<'_>) -> zbus::Result<()> {
+    let menu_proxy = DBusMenuProxy::builder(item_proxy.connection())
+        .destination(item_proxy.destination())?
+        .path(item_proxy.menu().await?)?
+        .build()
+        .await?;
+
+    dbg!(menu_proxy.get_layout(0, -1, &Vec::new()).await?);
+
+    Ok(())
 }
