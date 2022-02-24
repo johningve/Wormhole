@@ -10,12 +10,15 @@ use windows::Win32::{
     Foundation::HWND,
     Graphics::Gdi::{GetDC, ReleaseDC},
 };
+use zvariant::OwnedObjectPath;
 
 use crate::{
     proxies::{
         icons::IconsProxy,
+        menu::DBusMenuProxy,
         status_notifier_item::{Pixmap, StatusNotifierItemProxy},
     },
+    services::status_notifier::menu::Menu,
     util::wslpath,
 };
 
@@ -23,6 +26,7 @@ use super::{icon::Icon, systray::SysTrayIcon};
 
 struct IndicatorInner {
     icon: SysTrayIcon,
+    menu: Option<Menu>,
     proxy: StatusNotifierItemProxy<'static>,
     close: Option<oneshot::Sender<()>>,
 }
@@ -40,6 +44,7 @@ impl Indicator {
 
         let indicator = Self(Arc::new(Mutex::new(IndicatorInner {
             icon: SysTrayIcon::new(hwnd, id),
+            menu: None,
             proxy,
             close: Some(tx),
         })));
@@ -65,6 +70,7 @@ impl Indicator {
         let mut new_icon_stream = proxy.receive_new_icon().await.unwrap();
         let mut new_attention_icon_stream = proxy.receive_new_attention_icon().await.unwrap();
         let mut new_tooltip_stream = proxy.receive_new_tooltip().await.unwrap();
+        let mut new_menu_stream = proxy.receive_menu_changed().await;
 
         // don't care about the contents of these signals, as none of them carry any arguments.
         while tokio::select! {
@@ -72,6 +78,7 @@ impl Indicator {
             s = new_icon_stream.next() => s.is_some(),
             s = new_attention_icon_stream.next() => s.is_some(),
             s = new_tooltip_stream.next() => s.is_some(),
+            s = new_menu_stream.next() => s.is_some(),
             _ = &mut close => false,
         } {
             self.update().await.unwrap();
@@ -115,6 +122,32 @@ impl Indicator {
             .icon
             .update(Some(icon), Some(&tooltip_text));
 
+        self.update_menu().await?;
+
+        Ok(())
+    }
+
+    async fn update_menu(&self) -> anyhow::Result<()> {
+        let proxy = {
+            let inner = self.0.lock().unwrap();
+            inner.proxy.clone()
+        };
+
+        let dest = proxy.destination().to_owned();
+        let conn = proxy.connection().clone();
+
+        if let Ok(menu) = proxy.menu().await {
+            let menu = menu.to_owned();
+            let menu_proxy = DBusMenuProxy::builder(&conn)
+                .destination(&dest)?
+                .path(menu.clone())?
+                .build()
+                .await?;
+
+            let mut inner = self.0.lock().unwrap();
+            inner.menu = Some(Menu::new(inner.icon.id, menu_proxy)?);
+        }
+
         Ok(())
     }
 
@@ -133,27 +166,40 @@ impl Indicator {
         inner.icon.id
     }
 
-    pub async fn activate(&self, x: i32, y: i32) -> zbus::Result<()> {
+    pub async fn activate(&self, x: i32, y: i32) -> anyhow::Result<()> {
         log::debug!("activate: ({}, {})", x, y);
-        let proxy = {
+        let (proxy, menu, hwnd) = {
             let inner = self.0.lock().unwrap();
-            inner.proxy.clone()
-        };
-        proxy.activate(x, y).await
-    }
-
-    pub async fn secondary_activate(&self, x: i32, y: i32) -> zbus::Result<()> {
-        log::debug!("secondary_activate: ({}, {})", x, y);
-        let proxy = {
-            let inner = self.0.lock().unwrap();
-            inner.proxy.clone()
+            (inner.proxy.clone(), inner.menu.clone(), inner.icon.hwnd)
         };
 
         if proxy.item_is_menu().await.unwrap_or_default() {
-            proxy.context_menu(x, y).await
+            if let Some(menu) = menu {
+                menu.show_context_menu(hwnd, x, y).await?;
+            } else {
+                proxy.context_menu(x, y).await?;
+            }
         } else {
-            proxy.secondary_activate(x, y).await
+            proxy.activate(x, y).await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn secondary_activate(&self, x: i32, y: i32) -> anyhow::Result<()> {
+        log::debug!("secondary_activate: ({}, {})", x, y);
+        let (proxy, menu, hwnd) = {
+            let inner = self.0.lock().unwrap();
+            (inner.proxy.clone(), inner.menu.clone(), inner.icon.hwnd)
+        };
+
+        if let Some(menu) = menu {
+            menu.show_context_menu(hwnd, x, y).await?;
+        } else {
+            proxy.secondary_activate(x, y).await?;
+        }
+
+        Ok(())
     }
 }
 

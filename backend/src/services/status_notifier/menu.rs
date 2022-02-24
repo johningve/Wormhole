@@ -12,8 +12,10 @@ use windows::Win32::{
     Foundation::{HWND, POINT},
     UI::WindowsAndMessaging::{
         AppendMenuW, CheckMenuItem, CheckMenuRadioItem, CreateMenu, CreatePopupMenu, DestroyMenu,
-        GetMenu, SetMenu, HMENU, MFT_RADIOCHECK, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED,
-        MF_POPUP, MF_SEPARATOR, MF_STRING, MF_UNCHECKED,
+        GetMenu, GetSystemMetrics, SetForegroundWindow, SetMenu, TrackPopupMenuEx, HMENU,
+        MFT_RADIOCHECK, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR,
+        MF_STRING, MF_UNCHECKED, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN,
+        TPM_RIGHTBUTTON,
     },
 };
 use zvariant::OwnedValue;
@@ -38,6 +40,7 @@ struct MenuInner {
     proxy: DBusMenuProxy<'static>,
 }
 
+#[derive(Clone)]
 pub struct Menu(Arc<Mutex<MenuInner>>);
 
 impl Menu {
@@ -149,16 +152,68 @@ impl Menu {
         return Ok(menu);
     }
 
-    pub async fn show_context_menu(&self, hwnd: HWND, point: POINT) -> anyhow::Result<()> {
+    pub async fn show_context_menu(&self, hwnd: HWND, x: i32, y: i32) -> anyhow::Result<()> {
         let (_, layout) = self.get_proxy().get_layout(0, -1, PROPERTIES_USED).await?;
 
         let menu = self.build_menu(&layout)?;
 
-        // TODO: show the menu :^)
+        // TODO: not sure what effect this has
+        unsafe { SetForegroundWindow(hwnd) };
+
+        let flags = TPM_RIGHTBUTTON
+            | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
+                TPM_RIGHTALIGN
+            } else {
+                TPM_LEFTALIGN
+            };
+
+        if !unsafe { TrackPopupMenuEx(menu.handle(), flags, x, y, hwnd, std::ptr::null()) }
+            .as_bool()
+        {
+            return Err(windows::core::Error::from_win32().into());
+        }
 
         Ok(())
     }
 }
+
+//     pub async fn show_context_menu(
+//         &self,
+//     ) -> anyhow::Result<impl FnOnce(HWND, POINT) -> windows::core::Result<()>> {
+//         let (_, layout) = self.get_proxy().get_layout(0, -1, PROPERTIES_USED).await?;
+
+//         let menu = self.build_menu(&layout)?;
+
+//         Ok(move |hwnd: HWND, point: POINT| {
+//             // TODO: not sure what effect this has
+//             unsafe { SetForegroundWindow(hwnd) };
+
+//             let flags = TPM_RIGHTBUTTON
+//                 | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
+//                     TPM_RIGHTALIGN
+//                 } else {
+//                     TPM_LEFTALIGN
+//                 };
+
+//             if !unsafe {
+//                 TrackPopupMenuEx(
+//                     menu.handle(),
+//                     flags,
+//                     point.x,
+//                     point.y,
+//                     hwnd,
+//                     std::ptr::null(),
+//                 )
+//             }
+//             .as_bool()
+//             {
+//                 return Err(windows::core::Error::from_win32());
+//             }
+
+//             Ok(())
+//         })
+//     }
+// }
 
 // impl Drop for Menu {
 //     fn drop(&mut self) {

@@ -295,7 +295,7 @@ impl StatusNotifierHost {
                 .build()
                 .await?;
 
-            inspect_menu(&proxy).await?;
+            // inspect_menu(&proxy).await?;
 
             let id = proxy.id().await?;
 
