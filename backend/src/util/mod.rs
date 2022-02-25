@@ -17,6 +17,20 @@ macro_rules! unwrap_or_log {
     };
 }
 
+#[macro_export]
+macro_rules! hiword {
+    ($e:expr) => {
+        $e >> 16
+    };
+}
+
+#[macro_export]
+macro_rules! loword {
+    ($e:expr) => {
+        $e & 0xffff
+    };
+}
+
 #[allow(dead_code)]
 pub fn log_err<T>(e: T) -> T
 where

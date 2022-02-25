@@ -201,6 +201,18 @@ impl Indicator {
 
         Ok(())
     }
+
+    pub async fn dispatch_menu_command(&self, id: u16) -> anyhow::Result<()> {
+        let menu = {
+            let inner = self.0.lock().unwrap();
+            inner.menu.clone()
+        };
+        if let Some(menu) = menu {
+            menu.dispatch_command(id).await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 fn get_icon(hwnd: HWND, icon_path: &Path, icon_pixmaps: Vec<Pixmap>) -> anyhow::Result<Icon> {

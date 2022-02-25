@@ -1,24 +1,21 @@
 use std::{
-    collections::HashMap,
-    convert::{TryFrom, TryInto},
-    slice::SliceIndex,
+    convert::TryInto,
     sync::{Arc, Mutex},
+    time::SystemTime,
 };
 
 use anyhow::bail;
 use bimap::BiMap;
-use tokio::sync::oneshot;
 use windows::Win32::{
-    Foundation::{HWND, POINT},
+    Foundation::HWND,
     UI::WindowsAndMessaging::{
         AppendMenuW, CheckMenuItem, CheckMenuRadioItem, CreateMenu, CreatePopupMenu, DestroyMenu,
         GetMenu, GetSystemMetrics, SetForegroundWindow, SetMenu, TrackPopupMenuEx, HMENU,
-        MFT_RADIOCHECK, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR,
-        MF_STRING, MF_UNCHECKED, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN,
-        TPM_RIGHTBUTTON,
+        MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING,
+        MF_UNCHECKED, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN, TPM_RIGHTBUTTON,
     },
 };
-use zvariant::OwnedValue;
+use zvariant::Value;
 
 use crate::proxies::menu::{DBusMenuProxy, LayoutItem};
 
@@ -80,14 +77,12 @@ impl Menu {
     fn unmap_id(&self, mapped_id: u16) -> Option<i32> {
         let inner = self.0.lock().unwrap();
 
-        if let Some(id) = inner.id_mapping.get_by_left(&mapped_id) {
-            Some(*id)
-        } else {
-            None
-        }
+        inner.id_mapping.get_by_left(&mapped_id).copied()
     }
 
     fn add_item(&self, menu: &Win32Menu, item: &LayoutItem) -> anyhow::Result<()> {
+        log::debug!("add_item");
+
         let item_type = match item.properties.get("type") {
             Some(v) => v.try_into()?,
             None => "",
@@ -132,7 +127,7 @@ impl Menu {
                 menu.check_radio_item(id, checked)?;
             }
         } else {
-            let submenu = self.build_menu(&item)?;
+            let submenu = self.build_menu(item)?;
             menu.append_popup(label, enabled, submenu)?;
         }
 
@@ -142,6 +137,7 @@ impl Menu {
     fn build_menu(&self, layout: &LayoutItem) -> anyhow::Result<Win32Menu> {
         // TODO: figure out what to do about the root item.
         // for now, we'll just ignore it.
+        log::debug!("build_menu");
 
         let menu = Win32Menu::create_popup()?;
 
@@ -149,13 +145,15 @@ impl Menu {
             self.add_item(&menu, child)?;
         }
 
-        return Ok(menu);
+        Ok(menu)
     }
 
     pub async fn show_context_menu(&self, hwnd: HWND, x: i32, y: i32) -> anyhow::Result<()> {
         let (_, layout) = self.get_proxy().get_layout(0, -1, PROPERTIES_USED).await?;
 
         let menu = self.build_menu(&layout)?;
+
+        log::debug!("menu was built");
 
         // TODO: not sure what effect this has
         unsafe { SetForegroundWindow(hwnd) };
@@ -167,12 +165,40 @@ impl Menu {
                 TPM_LEFTALIGN
             };
 
-        if !unsafe { TrackPopupMenuEx(menu.handle(), flags, x, y, hwnd, std::ptr::null()) }
-            .as_bool()
-        {
-            return Err(windows::core::Error::from_win32().into());
-        }
+        log::debug!("calling TrackPopupMenuEx");
 
+        unsafe { TrackPopupMenuEx(menu.handle(), flags, x, y, hwnd, std::ptr::null()) }.ok()?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn dispatch_command(&self, id: u16) -> anyhow::Result<()> {
+        let unmapped_id = match self.unmap_id(id) {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        log::debug!(
+            "dispatching event for menu item (id: {} mapped: {})",
+            unmapped_id,
+            id
+        );
+
+        let proxy = {
+            let inner = self.0.lock().unwrap();
+            inner.proxy.clone()
+        };
+
+        proxy
+            .event(
+                unmapped_id,
+                "clicked",
+                &Value::new(""),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)?
+                    .as_secs() as _,
+            )
+            .await?;
         Ok(())
     }
 }
@@ -215,34 +241,12 @@ impl Menu {
 //     }
 // }
 
-// impl Drop for Menu {
-//     fn drop(&mut self) {
-//         unsafe { DestroyMenu(self.handle) };
-//     }
-// }
-
-// impl Menu {
-//     fn new() -> windows::core::Result<Self> {
-//         let handle = unsafe { CreateMenu() };
-//         if handle.is_invalid() {
-//             return Err(windows::core::Error::from_win32());
-//         }
-
-//         Ok(Self { handle })
-//     }
-
-//     fn append_item(&self, id: usize, label: &str) -> windows::core::Result<()> {
-//         if !unsafe { AppendMenuW(self.handle, MF_STRING, id, label) }.as_bool() {
-//             return Err(windows::core::Error::from_win32());
-//         }
-//         Ok(())
-//     }
-// }
-
 struct Win32Menu(HMENU);
 
 impl Drop for Win32Menu {
     fn drop(&mut self) {
+        log::debug!("destroy_menu");
+
         unsafe { DestroyMenu(self.0) };
     }
 }
@@ -259,11 +263,7 @@ impl Win32Menu {
     }
 
     fn set(hwnd: HWND, hmenu: Option<Self>) -> windows::core::Result<()> {
-        if unsafe { SetMenu(hwnd, hmenu.map(Self::into_handle)) }.as_bool() {
-            Ok(())
-        } else {
-            Err(windows::core::Error::from_win32())
-        }
+        unsafe { SetMenu(hwnd, hmenu.map(Self::into_handle)) }.ok()
     }
 
     fn into_handle(self) -> HMENU {
@@ -278,61 +278,51 @@ impl Win32Menu {
     }
 
     fn create() -> windows::core::Result<Self> {
-        let handle = unsafe { CreateMenu() };
-        if handle.is_invalid() {
-            Err(windows::core::Error::from_win32())
-        } else {
-            Ok(Self(handle))
-        }
+        log::debug!("create");
+
+        unsafe { CreateMenu() }.ok().map(Self)
     }
 
     fn create_popup() -> windows::core::Result<Self> {
-        let handle = unsafe { CreatePopupMenu() };
-        if handle.is_invalid() {
-            Err(windows::core::Error::from_win32())
-        } else {
-            Ok(Self(handle))
-        }
+        log::debug!("create_popup");
+
+        unsafe { CreatePopupMenu() }.ok().map(Self)
     }
 
     fn append_item(&self, id: u16, label: &str, enabled: bool) -> windows::core::Result<()> {
+        log::debug!("append_item");
+
         let mut flags = MF_STRING;
 
         if !enabled {
             flags |= MF_DISABLED | MF_GRAYED;
         }
 
-        if unsafe { AppendMenuW(self.0, flags, id as _, label) }.as_bool() {
-            Ok(())
-        } else {
-            Err(windows::core::Error::from_win32())
-        }
+        unsafe { AppendMenuW(self.0, flags, id as _, label) }.ok()
     }
 
     fn append_separator(&self) -> windows::core::Result<()> {
-        if unsafe { AppendMenuW(self.0, MF_SEPARATOR, 0, None) }.as_bool() {
-            Ok(())
-        } else {
-            Err(windows::core::Error::from_win32())
-        }
+        log::debug!("append_separator");
+
+        unsafe { AppendMenuW(self.0, MF_SEPARATOR, 0, None) }.ok()
     }
 
     fn append_popup(&self, label: &str, enabled: bool, popup: Self) -> windows::core::Result<()> {
+        log::debug!("append_popup");
+
         let mut flags = MF_POPUP;
 
         if !enabled {
             flags |= MF_DISABLED | MF_GRAYED;
         }
 
-        if unsafe { AppendMenuW(self.0, flags, popup.into_handle().0 as _, None) }.as_bool() {
-            Ok(())
-        } else {
-            Err(windows::core::Error::from_win32())
-        }
+        unsafe { AppendMenuW(self.0, flags, popup.into_handle().0 as _, None) }.ok()
     }
 
     #[allow(clippy::needless_return)]
     fn check_item(&self, id: u16, checked: bool) -> bool {
+        log::debug!("check_item");
+
         return unsafe {
             CheckMenuItem(
                 self.0,
@@ -344,12 +334,9 @@ impl Win32Menu {
 
     // TODO: support item groups
     fn check_radio_item(&self, id: u16, checked: bool) -> windows::core::Result<()> {
-        if unsafe { CheckMenuRadioItem(self.0, id as _, id as _, id as _, MF_BYCOMMAND) }.as_bool()
-        {
-            Ok(())
-        } else {
-            Err(windows::core::Error::from_win32())
-        }
+        log::debug!("check_radio_item");
+
+        unsafe { CheckMenuRadioItem(self.0, id as _, id as _, id as _, MF_BYCOMMAND) }.ok()
     }
 }
 

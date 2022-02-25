@@ -22,8 +22,8 @@ use windows::Win32::{
         Controls::RichEdit::WM_CONTEXTMENU,
         WindowsAndMessaging::{
             CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
-            RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_DESTROY, WM_LBUTTONUP,
-            WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+            RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_COMMAND, WM_DESTROY,
+            WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
@@ -32,6 +32,7 @@ use zbus::{names::BusName, Connection};
 use super::indicator::Indicator;
 
 use crate::{
+    hiword, loword,
     proxies::{
         menu::DBusMenuProxy,
         status_notifier_item::StatusNotifierItemProxy,
@@ -56,7 +57,7 @@ pub const MENU_IDS_PER_APP: u16 = 100;
 
 //
 thread_local! {
-    static TX: RefCell<Option<tokio::sync::mpsc::Sender<(WPARAM, LPARAM)>>> = RefCell::new(None)
+    static TX: RefCell<Option<tokio::sync::mpsc::Sender<(u32, WPARAM, LPARAM)>>> = RefCell::new(None)
 }
 
 struct HostInner {
@@ -117,8 +118,12 @@ impl StatusNotifierHost {
         {
             let host = host.clone();
             tokio::spawn(async move {
-                while let Some((wparam, lparam)) = rx.recv().await {
-                    if let Err(e) = host.handle_notify_callback(wparam, lparam).await {
+                while let Some((msg, wparam, lparam)) = rx.recv().await {
+                    if let Err(e) = match msg {
+                        WMAPP_NOTIFYCALLBACK => host.handle_notify_callback(wparam, lparam).await,
+                        WM_COMMAND => host.handle_command(wparam, lparam).await,
+                        _ => Ok(()),
+                    } {
                         log::error!("handle_callback errored: {}", e);
                     }
                 }
@@ -134,7 +139,7 @@ impl StatusNotifierHost {
     }
 
     fn create_window(
-        notify_tx: tokio::sync::mpsc::Sender<(WPARAM, LPARAM)>,
+        notify_tx: tokio::sync::mpsc::Sender<(u32, WPARAM, LPARAM)>,
     ) -> windows::core::Result<HWND> {
         // channel to communicate with window thread
         let (tx, rx) = mpsc::channel();
@@ -217,9 +222,13 @@ impl StatusNotifierHost {
             WM_DESTROY => {
                 PostQuitMessage(0);
             }
-            WM_CONTEXTMENU => {}
-            WMAPP_NOTIFYCALLBACK => TX
-                .with(|c| c.borrow().as_ref().unwrap().blocking_send((wparam, lparam)))
+            WM_COMMAND | WMAPP_NOTIFYCALLBACK => TX
+                .with(|c| {
+                    c.borrow()
+                        .as_ref()
+                        .unwrap()
+                        .blocking_send((msg, wparam, lparam))
+                })
                 .unwrap(),
             // TODO: might be able to do scroll through WM_INPUT:
             // https://github.com/File-New-Project/EarTrumpet/blob/36e716c7fe4b375274f20229431f0501fe130460/EarTrumpet/UI/Helpers/ShellNotifyIcon.cs#L146
@@ -231,8 +240,8 @@ impl StatusNotifierHost {
     async fn handle_notify_callback(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
         let id = (lparam.0 >> 16) as u16;
 
-        let x = (wparam.0 >> 16) as i32;
-        let y = (wparam.0 & 0xffff) as i32;
+        let x = hiword!(wparam.0) as i32;
+        let y = loword!(wparam.0) as i32;
 
         let indicator = if let Some(indicator) = self.get_item_by_id(id) {
             indicator
@@ -240,11 +249,33 @@ impl StatusNotifierHost {
             bail!("could not find indicator with id: {}", id);
         };
 
-        match (lparam.0 & 0xffff) as u32 {
+        match loword!(lparam.0) as u32 {
             WM_LBUTTONUP => indicator.activate(x, y).await.map_err(Into::into),
             WM_RBUTTONUP => indicator.secondary_activate(x, y).await.map_err(Into::into),
             _ => Ok(()),
         }
+    }
+
+    async fn handle_command(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
+        // check what kind of command we are handling
+        match hiword!(wparam.0) {
+            0 => {}                                             // menu
+            1 => bail!("accelerators not implemented"),         // accelerator
+            _ => bail!("unexpected control notification code"), // control
+        };
+
+        // now we are sure that it is a menu command.
+        let id = loword!(wparam.0) as u16 / MENU_IDS_PER_APP;
+
+        let indicator = if let Some(indicator) = self.get_item_by_id(id) {
+            indicator
+        } else {
+            bail!("could not find indicator with id: {}", id);
+        };
+
+        indicator.dispatch_menu_command(id).await?;
+
+        Ok(())
     }
 
     fn insert_item(
@@ -294,8 +325,6 @@ impl StatusNotifierHost {
                 .destination(BusName::try_from(args.service().to_string())?)?
                 .build()
                 .await?;
-
-            // inspect_menu(&proxy).await?;
 
             let id = proxy.id().await?;
 
@@ -410,16 +439,4 @@ fn get_id(app_id: &str) -> windows::core::Result<u16> {
         }
         Err(e) => Err(e),
     }
-}
-
-async fn inspect_menu(item_proxy: &StatusNotifierItemProxy<'_>) -> zbus::Result<()> {
-    let menu_proxy = DBusMenuProxy::builder(item_proxy.connection())
-        .destination(item_proxy.destination())?
-        .path(item_proxy.menu().await?)?
-        .build()
-        .await?;
-
-    dbg!(menu_proxy.get_layout(0, -1, &Vec::new()).await?);
-
-    Ok(())
 }
