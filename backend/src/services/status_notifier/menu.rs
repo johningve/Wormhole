@@ -7,17 +7,20 @@ use std::{
 use anyhow::bail;
 use bimap::BiMap;
 use windows::Win32::{
-    Foundation::HWND,
+    Foundation::{HWND, LPARAM, WPARAM},
     UI::WindowsAndMessaging::{
         AppendMenuW, CheckMenuItem, CheckMenuRadioItem, CreateMenu, CreatePopupMenu, DestroyMenu,
-        GetMenu, GetSystemMetrics, SetForegroundWindow, SetMenu, TrackPopupMenuEx, HMENU,
-        MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING,
+        GetMenu, GetSystemMetrics, PostMessageA, SetForegroundWindow, SetMenu, TrackPopupMenuEx,
+        HMENU, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING,
         MF_UNCHECKED, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN, TPM_RIGHTBUTTON,
     },
 };
 use zvariant::Value;
 
-use crate::proxies::menu::{DBusMenuProxy, LayoutItem};
+use crate::{
+    proxies::menu::{DBusMenuProxy, LayoutItem},
+    services::status_notifier::host::WMAPP_SHOWMENU,
+};
 
 use super::host::MENU_IDS_PER_APP;
 
@@ -155,19 +158,15 @@ impl Menu {
 
         log::debug!("menu was built");
 
-        // TODO: not sure what effect this has
-        unsafe { SetForegroundWindow(hwnd) };
-
-        let flags = TPM_RIGHTBUTTON
-            | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
-                TPM_RIGHTALIGN
-            } else {
-                TPM_LEFTALIGN
-            };
-
-        log::debug!("calling TrackPopupMenuEx");
-
-        unsafe { TrackPopupMenuEx(menu.handle(), flags, x, y, hwnd, std::ptr::null()) }.ok()?;
+        unsafe {
+            PostMessageA(
+                hwnd,
+                WMAPP_SHOWMENU,
+                WPARAM(menu.into_handle().0 as _),
+                LPARAM(((x << 16) | y) as isize),
+            )
+        }
+        .ok()?;
 
         Ok(())
     }
@@ -241,7 +240,7 @@ impl Menu {
 //     }
 // }
 
-struct Win32Menu(HMENU);
+pub struct Win32Menu(HMENU);
 
 impl Drop for Win32Menu {
     fn drop(&mut self) {
@@ -252,6 +251,10 @@ impl Drop for Win32Menu {
 }
 
 impl Win32Menu {
+    pub unsafe fn from_handle(handle: HMENU) -> Self {
+        Self(handle)
+    }
+
     fn get(hwnd: HWND) -> Option<Self> {
         let handle = unsafe { GetMenu(hwnd) };
 
@@ -266,14 +269,14 @@ impl Win32Menu {
         unsafe { SetMenu(hwnd, hmenu.map(Self::into_handle)) }.ok()
     }
 
-    fn into_handle(self) -> HMENU {
+    pub fn into_handle(self) -> HMENU {
         let handle = self.0;
         // don't drop this menu
         std::mem::forget(self);
         handle
     }
 
-    unsafe fn handle(&self) -> HMENU {
+    pub unsafe fn handle(&self) -> HMENU {
         self.0
     }
 

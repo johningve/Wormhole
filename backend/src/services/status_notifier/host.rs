@@ -21,15 +21,17 @@ use windows::Win32::{
     UI::{
         Controls::RichEdit::WM_CONTEXTMENU,
         WindowsAndMessaging::{
-            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, PostQuitMessage,
-            RegisterClassA, TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_COMMAND, WM_DESTROY,
-            WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetSystemMetrics,
+            PostQuitMessage, RegisterClassA, SetForegroundWindow, TrackPopupMenuEx,
+            TranslateMessage, CW_USEDEFAULT, HMENU, MSG, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN,
+            TPM_RIGHTALIGN, TPM_RIGHTBUTTON, WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP,
+            WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
         },
     },
 };
 use zbus::{names::BusName, Connection};
 
-use super::indicator::Indicator;
+use super::{indicator::Indicator, menu::Win32Menu};
 
 use crate::{
     hiword, loword,
@@ -50,6 +52,7 @@ const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";
 const INDICATORS_KEY: &str = "Indicators";
 
 pub const WMAPP_NOTIFYCALLBACK: u32 = WM_APP + 1;
+pub const WMAPP_SHOWMENU: u32 = WM_APP + 2;
 
 // this effectively allocates 100 menu ids per application.
 // should be enough :^)
@@ -222,6 +225,7 @@ impl StatusNotifierHost {
             WM_DESTROY => {
                 PostQuitMessage(0);
             }
+            // pass the following to tokio task for async stuff
             WM_COMMAND | WMAPP_NOTIFYCALLBACK => TX
                 .with(|c| {
                     c.borrow()
@@ -230,6 +234,32 @@ impl StatusNotifierHost {
                         .blocking_send((msg, wparam, lparam))
                 })
                 .unwrap(),
+            WMAPP_SHOWMENU => {
+                // TODO: not sure what effect this has
+                SetForegroundWindow(hwnd);
+
+                let flags = TPM_RIGHTBUTTON
+                    | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
+                        TPM_RIGHTALIGN
+                    } else {
+                        TPM_LEFTALIGN
+                    };
+
+                let menu = Win32Menu::from_handle(HMENU(wparam.0 as _));
+
+                if let Err(e) = TrackPopupMenuEx(
+                    menu.handle(),
+                    flags,
+                    hiword!(lparam.0) as _,
+                    loword!(lparam.0) as _,
+                    hwnd,
+                    std::ptr::null(),
+                )
+                .ok()
+                {
+                    log::error!("TrackPopupMenuEx error: {}", e);
+                }
+            }
             // TODO: might be able to do scroll through WM_INPUT:
             // https://github.com/File-New-Project/EarTrumpet/blob/36e716c7fe4b375274f20229431f0501fe130460/EarTrumpet/UI/Helpers/ShellNotifyIcon.cs#L146
             _ => return DefWindowProcA(hwnd, msg, wparam, lparam),
