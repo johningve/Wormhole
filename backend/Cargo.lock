@@ -147,6 +147,7 @@ dependencies = [
  "env_logger",
  "futures",
  "image",
+ "lazy_static",
  "log",
  "new_mime_guess",
  "once_cell",

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     convert::TryInto,
     sync::{Arc, Mutex},
     time::SystemTime,
@@ -6,6 +7,8 @@ use std::{
 
 use anyhow::bail;
 use bimap::BiMap;
+use lazy_static::lazy_static;
+use regex::Regex;
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     UI::WindowsAndMessaging::{
@@ -97,8 +100,8 @@ impl Menu {
         }
 
         let label = match item.properties.get("label") {
-            Some(v) => v.try_into()?,
-            None => "",
+            Some(v) => convert_access_key_hints(v.try_into()?),
+            None => String::new(),
         };
 
         let enabled = match item.properties.get("enabled") {
@@ -108,7 +111,7 @@ impl Menu {
 
         if item.children.is_empty() {
             let id = self.map_id(item.id);
-            menu.append_item(id, label, enabled)?;
+            menu.append_item(id, &label, enabled)?;
 
             let toggle_type = match item.properties.get("toggle-type") {
                 Some(v) => v.try_into()?,
@@ -131,7 +134,7 @@ impl Menu {
             }
         } else {
             let submenu = self.build_menu(item)?;
-            menu.append_popup(label, enabled, submenu)?;
+            menu.append_popup(&label, enabled, submenu)?;
         }
 
         Ok(())
@@ -174,7 +177,11 @@ impl Menu {
     pub(crate) async fn dispatch_command(&self, id: u16) -> anyhow::Result<()> {
         let unmapped_id = match self.unmap_id(id) {
             Some(id) => id,
-            None => return Ok(()),
+            None => {
+                log::warn!("no menu command with mapped id {}", id);
+
+                return Ok(());
+            }
         };
 
         log::debug!(
@@ -347,4 +354,21 @@ enum ToggleType {
     None,
     Checkbox,
     Radiobutton,
+}
+
+// TODO: make this faster
+fn convert_access_key_hints(s: &str) -> String {
+    lazy_static! {
+        static ref ACCESS_KEY: Regex = Regex::new(r"_(\p{alpha})").unwrap();
+        static ref LONELY_UNDERSCORE: Regex = Regex::new(r"_[^\p{alpha}_]").unwrap();
+    }
+
+    // first, replace all & with &&
+    let s1: Cow<str> = s.replace("&", "&&").into();
+    // then, replace single underscores
+    let s2: Cow<str> = ACCESS_KEY.replace_all(&s1, "&$1");
+    let s3 = LONELY_UNDERSCORE.replace_all(&s2, "");
+
+    // then, replace double underscores
+    s3.replace("__", "_")
 }

@@ -239,7 +239,7 @@ impl StatusNotifierHost {
                 SetForegroundWindow(hwnd);
 
                 let flags = TPM_RIGHTBUTTON
-                    | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
+                    | if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 {
                         TPM_RIGHTALIGN
                     } else {
                         TPM_LEFTALIGN
@@ -295,7 +295,8 @@ impl StatusNotifierHost {
         };
 
         // now we are sure that it is a menu command.
-        let id = loword!(wparam.0) as u16 / MENU_IDS_PER_APP;
+        let menu_id = loword!(wparam.0) as u16;
+        let id = menu_id / MENU_IDS_PER_APP;
 
         let indicator = if let Some(indicator) = self.get_item_by_id(id) {
             indicator
@@ -303,7 +304,7 @@ impl StatusNotifierHost {
             bail!("could not find indicator with id: {}", id);
         };
 
-        indicator.dispatch_menu_command(id).await?;
+        indicator.dispatch_menu_command(menu_id).await?;
 
         Ok(())
     }
