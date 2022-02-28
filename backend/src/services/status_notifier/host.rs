@@ -29,7 +29,11 @@ use windows::Win32::{
         },
     },
 };
-use zbus::{names::BusName, Connection};
+use zbus::{
+    names::{BusName, OwnedBusName},
+    Connection,
+};
+use zvariant::{ObjectPath, OwnedObjectPath};
 
 use super::{indicator::Indicator, menu::Win32Menu};
 
@@ -58,27 +62,45 @@ pub const WMAPP_SHOWMENU: u32 = WM_APP + 2;
 // should be enough :^)
 pub const MENU_IDS_PER_APP: u16 = 100;
 
-//
 thread_local! {
     static TX: RefCell<Option<tokio::sync::mpsc::Sender<(u32, WPARAM, LPARAM)>>> = RefCell::new(None)
 }
 
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct IndicatorID {
+    destination: OwnedBusName,
+    path: OwnedObjectPath,
+}
+
+impl IndicatorID {
+    fn new(destination: &BusName<'_>, path: &ObjectPath<'_>) -> Self {
+        Self {
+            destination: destination.to_owned().into(),
+            path: path.to_owned().into(),
+        }
+    }
+}
+
+impl ToString for IndicatorID {
+    fn to_string(&self) -> String {
+        format!("{}{}", self.destination, self.path.as_str())
+    }
+}
+
 struct HostInner {
-    items: HashMap<String, Indicator>,
-    by_id: HashMap<u16, String>,
+    items: HashMap<IndicatorID, Indicator>,
+    by_id: HashMap<u16, IndicatorID>,
 }
 
 #[derive(Clone)]
 pub struct StatusNotifierHost {
-    connection: Connection,
     hwnd: HWND,
     inner: Arc<Mutex<HostInner>>,
 }
 
 impl StatusNotifierHost {
-    pub async fn init(connection: &Connection) -> anyhow::Result<()> {
-        let mut host = Self {
-            connection: connection.clone(),
+    pub async fn new() -> anyhow::Result<Self> {
+        let mut host = StatusNotifierHost {
             hwnd: HWND::default(),
             inner: Arc::new(Mutex::new(HostInner {
                 items: HashMap::new(),
@@ -89,34 +111,6 @@ impl StatusNotifierHost {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
         host.hwnd = Self::create_window(tx)?;
-
-        let watcher_proxy = StatusNotifierWatcherProxy::new(connection).await?;
-
-        {
-            let host = host.clone();
-            let item_registered_stream = watcher_proxy
-                .receive_status_notifier_item_registered()
-                .await?;
-
-            tokio::spawn(async move {
-                host.handle_item_registered(item_registered_stream)
-                    .await
-                    .unwrap_or_else(|e| log::error!("{}", e));
-            });
-        }
-
-        {
-            let host = host.clone();
-            let item_unregistered_stream = watcher_proxy
-                .receive_status_notifier_item_unregistered()
-                .await?;
-
-            tokio::spawn(async move {
-                host.handle_item_unregistered(item_unregistered_stream)
-                    .await
-                    .unwrap_or_else(|e| log::error!("{}", e))
-            });
-        }
 
         {
             let host = host.clone();
@@ -133,12 +127,7 @@ impl StatusNotifierHost {
             });
         }
 
-        // TODO: replace literal with constant
-        watcher_proxy
-            .register_status_notifier_host("org.freedesktop.impl.portal.desktop.windows")
-            .await?;
-
-        Ok(())
+        Ok(host)
     }
 
     fn create_window(
@@ -309,79 +298,59 @@ impl StatusNotifierHost {
         Ok(())
     }
 
-    fn insert_item(
+    pub fn insert_item(
         &self,
         app_id: &str,
         proxy: StatusNotifierItemProxy<'static>,
     ) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
+
+        let dest = IndicatorID::new(proxy.destination(), proxy.path());
+
+        // won't overwrite
+        if inner.items.contains_key(&dest) {
+            return Ok(false);
+        }
+
         let id = get_id(app_id)?;
-        inner.by_id.insert(id, proxy.destination().to_string());
-        Ok(inner
+        inner.by_id.insert(id, dest.clone());
+        inner
             .items
-            .insert(
-                proxy.destination().to_string(),
-                Indicator::new(self.hwnd, id, proxy)?,
-            )
-            .is_none())
+            .insert(dest, Indicator::new(self.hwnd, id, proxy)?);
+
+        Ok(true)
     }
 
-    fn remove_item(&self, service: &str) -> bool {
+    pub fn handle_service_disappeared(&self, service: &str) -> Vec<String> {
         let mut inner = self.inner.lock().unwrap();
-        let indicator = inner.items.remove(service);
-        indicator
-            .map(|i| {
+
+        let mut removed = vec![];
+
+        for k in inner.items.keys() {
+            if k.destination.as_str() == service {
+                removed.push(k.clone());
+            }
+        }
+
+        for k in &removed {
+            if let Some(i) = inner.items.remove(k) {
                 inner.by_id.remove(&i.id());
                 i.unregister();
-            })
-            .is_some()
+            }
+        }
+
+        removed.iter().map(ToString::to_string).collect()
+    }
+
+    pub fn registered_items(&self) -> Vec<String> {
+        let inner = self.inner.lock().unwrap();
+        inner.items.keys().map(ToString::to_string).collect()
     }
 
     fn get_item_by_id(&self, id: u16) -> Option<Indicator> {
         let inner = self.inner.lock().unwrap();
         let service = inner.by_id.get(&id)?;
         inner.items.get(service).cloned()
-    }
-
-    async fn handle_item_registered(
-        self,
-        mut stream: StatusNotifierItemRegisteredStream<'_>,
-    ) -> anyhow::Result<()> {
-        while let Some(signal) = stream.next().await {
-            let args = signal.args()?;
-
-            log::debug!("handle_item_registered: {}", args.service());
-
-            let proxy = StatusNotifierItemProxy::builder(&self.connection)
-                .destination(BusName::try_from(args.service().to_string())?)?
-                .build()
-                .await?;
-
-            let id = proxy.id().await?;
-
-            if let Err(e) = self.insert_item(&id, proxy) {
-                log::error!("Failed to insert item '{}': {}", id, e);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_item_unregistered(
-        self,
-        mut stream: StatusNotifierItemUnregisteredStream<'_>,
-    ) -> anyhow::Result<()> {
-        while let Some(signal) = stream.next().await {
-            let args = signal.args()?;
-
-            log::debug!("handle_item_unregistered: {}", args.service());
-
-            if self.remove_item(args.service()) {
-                log::debug!("{} removed", args.service());
-            }
-        }
-
-        Ok(())
     }
 }
 

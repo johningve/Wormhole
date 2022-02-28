@@ -15,7 +15,6 @@ pub async fn init_all(connection: &Connection) -> anyhow::Result<()> {
     FileChooser::init(connection).await?;
     Notifications::init(connection).await?;
     StatusNotifierWatcher::init(connection).await?;
-    StatusNotifierHost::init(connection).await?;
 
     Ok(())
 }

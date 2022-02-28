@@ -5,29 +5,29 @@ use std::{
 };
 
 use futures::StreamExt;
+use windows::Win32::Security::ObjectDeleteAuditAlarmW;
 use zbus::{
     dbus_interface, fdo,
     names::{BusName, OwnedBusName},
-    Connection, SignalContext,
+    Connection, MessageHeader, SignalContext,
 };
+use zvariant::ObjectPath;
+
+use crate::proxies::status_notifier_item::StatusNotifierItemProxy;
+
+use super::host::StatusNotifierHost;
 
 const PATH: &str = "/StatusNotifierWatcher";
 
-#[derive(Default)]
-struct WatcherInner {
-    items: HashSet<OwnedBusName>,
-    host: Option<OwnedBusName>,
-}
-
 #[derive(Clone)]
 pub struct StatusNotifierWatcher {
-    inner: Arc<Mutex<WatcherInner>>,
+    host: StatusNotifierHost,
 }
 
 impl StatusNotifierWatcher {
-    pub async fn init(connection: &Connection) -> zbus::Result<()> {
+    pub async fn init(connection: &Connection) -> anyhow::Result<()> {
         let watcher = StatusNotifierWatcher {
-            inner: Arc::new(Mutex::new(WatcherInner::default())),
+            host: StatusNotifierHost::new().await?,
         };
 
         {
@@ -43,30 +43,6 @@ impl StatusNotifierWatcher {
         connection.object_server().at(PATH, watcher).await?;
 
         Ok(())
-    }
-
-    fn insert_item(&self, service: BusName<'_>) -> bool {
-        log::debug!("insert_item: {}", service);
-        let mut inner = self.inner.lock().unwrap();
-        inner.items.insert(service.into())
-    }
-
-    fn remove_item(&self, service: BusName<'_>) -> bool {
-        log::debug!("remove_item: {}", service);
-        let mut inner = self.inner.lock().unwrap();
-        inner.items.remove(&OwnedBusName::from(service))
-    }
-
-    fn register_host(&self, service: BusName<'_>) {
-        log::debug!("register_host: {}", service);
-        let mut inner = self.inner.lock().unwrap();
-        inner.host = Some(service.into());
-    }
-
-    fn is_host_registered(&self) -> bool {
-        log::debug!("is_host_registered");
-        let inner = self.inner.lock().unwrap();
-        inner.host.is_some()
     }
 
     async fn handle_name_owner_changed(self, connection: Connection) -> zbus::Result<()> {
@@ -93,16 +69,19 @@ impl StatusNotifierWatcher {
 
             let name = args.name();
 
-            if args.old_owner().is_some() && self.remove_item(BusName::try_from(name)?) {
+            if args.old_owner().is_some() {
+                let removed = self.host.handle_service_disappeared(name);
                 let iface = connection
                     .object_server()
                     .interface::<_, StatusNotifierWatcher>(PATH)
                     .await?;
-                StatusNotifierWatcher::status_notifier_item_unregistered(
-                    iface.signal_context(),
-                    name.as_str(),
-                )
-                .await?;
+                for indicator in removed {
+                    StatusNotifierWatcher::status_notifier_item_unregistered(
+                        iface.signal_context(),
+                        &indicator,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -114,40 +93,61 @@ impl StatusNotifierWatcher {
 impl StatusNotifierWatcher {
     async fn register_status_notifier_item(
         &self,
+        #[zbus(header)] hdr: MessageHeader<'_>,
         #[zbus(signal_context)] ctx: SignalContext<'_>,
         service: &str,
     ) -> fdo::Result<()> {
         log::debug!("register_status_notifier_item: {}", service);
-        let bus_name = BusName::try_from(service).map_err(|e| fdo::Error::Failed(e.to_string()))?;
 
-        if self.insert_item(bus_name) {
-            Self::status_notifier_item_registered(&ctx, service).await?;
-            Self::registered_status_notifier_items_changed(self, &ctx).await?;
+        let mut object_path = ObjectPath::from_str_unchecked("/StatusNotifierProxy");
+        let bus_name = if let Ok(name) = BusName::try_from(service) {
+            name
+        } else if let Some(sender) = hdr.sender()? {
+            if let Ok(path) = ObjectPath::try_from(service) {
+                object_path = path;
+            }
+            BusName::Unique(sender.clone())
+        } else {
+            return Err(fdo::Error::Failed(String::from(
+                "Could not determine bus name",
+            )));
+        };
+
+        let proxy = StatusNotifierItemProxy::builder(ctx.connection())
+            .destination(bus_name.into_owned())?
+            .path(object_path.into_owned())?
+            .build()
+            .await?;
+
+        let id = proxy.id().await?;
+
+        match self.host.insert_item(&id, proxy) {
+            Ok(v) => {
+                Self::status_notifier_item_registered(&ctx, service).await?;
+                Self::registered_status_notifier_items_changed(self, &ctx).await?;
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("register_status_notifier_item failed: {}", e.to_string());
+                Err(fdo::Error::Failed(e.to_string()))
+            }
         }
-
-        Ok(())
     }
 
-    async fn register_status_notifier_host(
-        &self,
-        #[zbus(signal_context)] ctx: SignalContext<'_>,
-        service: BusName<'_>,
-    ) -> fdo::Result<()> {
-        self.register_host(service);
-        Self::is_status_notifier_host_registered_changed(self, &ctx).await?;
-
-        Ok(())
+    async fn register_status_notifier_host(&self, _service: BusName<'_>) -> fdo::Result<()> {
+        Err(fdo::Error::NotSupported(String::from(
+            "Registering additional notifier hosts is not supported.",
+        )))
     }
 
     #[dbus_interface(property)]
     fn registered_status_notifier_items(&self) -> Vec<String> {
-        let inner = self.inner.lock().unwrap();
-        inner.items.iter().map(|n| n.to_string()).collect()
+        self.host.registered_items()
     }
 
     #[dbus_interface(property)]
     fn is_status_notifier_host_registered(&self) -> bool {
-        self.is_host_registered()
+        true
     }
 
     #[dbus_interface(property)]
