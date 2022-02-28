@@ -1,4 +1,5 @@
 use once_cell::sync::OnceCell;
+use single_instance::SingleInstance;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use util::{vmcompute, vmsocket, wslpath};
 use windows::Win32::{
@@ -43,6 +44,12 @@ impl Config {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+
+    let instance = SingleInstance::new(&format!("xdp-wsl-{}", std::env::var("USERNAME")?))?;
+    if !instance.is_single() {
+        log::error!("Another instance is already running!");
+        return Ok(());
+    }
 
     unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) }.unwrap();
     unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
