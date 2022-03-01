@@ -12,8 +12,7 @@ pub fn build_ui(app: &gtk::Application) {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("WSLPortal Demo")
-        .default_width(200)
-        .default_height(180)
+        .resizable(false)
         .build();
 
     let box_layout = gtk::Box::builder()
@@ -26,8 +25,8 @@ pub fn build_ui(app: &gtk::Application) {
         .margin_end(12)
         .build();
 
-    box_layout.append(&gnotification::build_ui(app));
-    box_layout.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+    // box_layout.append(&gnotification::build_ui(app));
+    // box_layout.append(&gtk::Separator::new(gtk::Orientation::Vertical));
     box_layout.append(&notify_rust::build_ui(app));
 
     window.set_child(Some(&box_layout));
