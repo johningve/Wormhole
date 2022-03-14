@@ -99,7 +99,7 @@ impl StatusNotifierWatcher {
     ) -> fdo::Result<()> {
         log::debug!("register_status_notifier_item: {}", service);
 
-        let mut object_path = ObjectPath::from_str_unchecked("/StatusNotifierProxy");
+        let mut object_path = ObjectPath::from_str_unchecked("/StatusNotifierItem");
         let bus_name = if let Ok(name) = BusName::try_from(service) {
             name
         } else if let Some(sender) = hdr.sender()? {
