@@ -13,6 +13,7 @@ use tokio::net::TcpStream;
 pub struct VmSocket(RawFd);
 
 impl VmSocket {
+    #[allow(dead_code)]
     pub fn connect(port: u32) -> io::Result<TcpStream> {
         let addr = SockAddr::new_vsock(libc::VMADDR_CID_HOST, port);
 
