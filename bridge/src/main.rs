@@ -1,16 +1,13 @@
+use serde::Serialize;
 use std::{error::Error, path::Path};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::UnixStream,
-};
+use tokio::{io::AsyncWriteExt, net::UnixStream};
+use zvariant_derive::Type;
 
 use vmsocket::VmSocket;
 use zbus::{Address, ConnectionBuilder};
 
 mod services;
 mod vmsocket;
-
-const CONNECT: &[u8] = b"connect\r\n";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -48,37 +45,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let Address::Unix(addr) = Address::session()?;
 
-    let distro_name = std::env::var("WSL_DISTRO_NAME")? + "\r\n";
-    let user_name = whoami::username() + "\r\n";
-    let home_folder = std::env::var("HOME")? + "\r\n";
+    let info = DistroInfo::new(
+        std::env::var("WSL_DISTRO_NAME")?,
+        whoami::username(),
+        std::env::var("HOME")?,
+    );
+
+    let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
+    let info_bytes = zvariant::to_bytes(ctxt, &info)?;
 
     let header = [
-        ((distro_name.len() + user_name.len() + home_folder.len()) as u32)
-            .to_le_bytes()
-            .as_ref(),
-        distro_name.as_bytes(),
-        user_name.as_bytes(),
-        home_folder.as_bytes(),
+        (info_bytes.len() as u32).to_le_bytes().as_ref(),
+        &info_bytes,
     ]
     .concat();
 
     loop {
-        let mut buffer = [0; 9];
-
         let mut vm_stream = vm_socket.accept()?;
         let mut dbus_stream = UnixStream::connect(Path::new(&addr)).await?;
 
         vm_stream.write_all(&header).await?;
 
-        // FIXME: DOS
-        vm_stream.read_exact(&mut buffer).await?;
-        if buffer != CONNECT {
-            log::warn!("unknown reply");
-            continue;
-        }
-
         tokio::spawn(async move {
             tokio::io::copy_bidirectional(&mut dbus_stream, &mut vm_stream).await
         });
+    }
+}
+
+#[derive(Serialize, Type)]
+struct DistroInfo {
+    distro_name: String,
+    user_name: String,
+    home_folder: String,
+}
+
+impl DistroInfo {
+    pub fn new(distro_name: String, user_name: String, home_folder: String) -> Self {
+        Self {
+            distro_name,
+            home_folder,
+            user_name,
+        }
     }
 }
