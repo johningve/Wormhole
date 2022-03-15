@@ -1,11 +1,15 @@
 use once_cell::sync::OnceCell;
+use serde::Deserialize;
 use single_instance::SingleInstance;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use util::{vmcompute, vmsocket, wslpath};
+use tokio::io::AsyncReadExt;
+use util::{vmcompute, vmsocket};
 use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
+use zvariant::Type;
+
+use crate::util::wslpath;
 
 mod proxies;
 mod services;
@@ -64,34 +68,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut header_buffer = vec![0; u32::from_le_bytes(size_buffer) as _];
     stream.read_exact(&mut header_buffer).await?;
 
-    // read the individual header fields
-    let mut distro_name = String::new();
-    let mut user_name = String::new();
-    let mut home_path = String::new();
-
-    let mut offset;
-    offset = (&header_buffer[..]).read_line(&mut distro_name).await?;
-    offset += (&header_buffer[offset..]).read_line(&mut user_name).await?;
-    (&header_buffer[offset..]).read_line(&mut home_path).await?;
-
-    distro_name = distro_name.trim_end().to_string();
-    user_name = user_name.trim_end().to_string();
-    home_path = home_path.trim_end().to_string();
+    let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
+    let distro_info: DistroInfo = zvariant::from_slice(&header_buffer, ctxt)?;
 
     CONFIG_INSTANCE
         .set(Config {
-            distro_name: distro_name.clone(),
-            user_name: user_name.clone(),
+            distro_name: distro_info.distro_name.to_string(),
+            user_name: distro_info.user_name.to_string(),
         })
         .unwrap();
 
-    // TODO: might want to make this a constant in a shared package
-    stream.write_all(b"connect\r\n").await?;
-
-    std::env::set_var("ZBUS_WSL_HOME", wslpath::to_windows(&home_path));
-    std::env::set_var("ZBUS_WSL_USER", user_name);
-
     let connection = zbus::ConnectionBuilder::socket(stream)
+        .wsl_info(
+            distro_info.user_name,
+            wslpath::to_windows(distro_info.home_folder)
+                .to_str()
+                .unwrap(),
+        )
         .internal_executor(false)
         .build()
         .await?;
@@ -120,4 +113,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[derive(Deserialize, Type)]
+struct DistroInfo<'a> {
+    pub distro_name: &'a str,
+    pub user_name: &'a str,
+    pub home_folder: &'a str,
 }

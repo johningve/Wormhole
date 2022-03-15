@@ -144,6 +144,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bimap",
+ "byteorder",
  "env_logger",
  "futures",
  "image",
