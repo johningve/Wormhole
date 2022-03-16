@@ -1,8 +1,7 @@
+use serde::Serialize;
 use std::{error::Error, path::Path};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::UnixStream,
-};
+use tokio::{io::AsyncWriteExt, net::UnixStream};
+use zvariant_derive::Type;
 
 use vmsocket::VmSocket;
 use zbus::{Address, ConnectionBuilder};
@@ -10,20 +9,17 @@ use zbus::{Address, ConnectionBuilder};
 mod services;
 mod vmsocket;
 
-const CONNECT: &[u8] = b"connect\r\n";
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    // set up a regular D-Bus connection and initialize services.
+    // set up a regular D-Bus connection.
     let dbus_connection = ConnectionBuilder::session()?
         .internal_executor(false)
         .build()
         .await?;
 
-    // start up a task for the zbus executor to use.
-    /* let handle =  */
+    // start up a task for the zbus executor.
     {
         // need to clone connection before moving into async task.
         let dbus_connection = dbus_connection.clone();
@@ -38,47 +34,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .request_name("org.freedesktop.impl.portal.desktop.wsl")
         .await?;
 
-    // handle.await?;
-
+    // initialize services
     services::init_all(&dbus_connection).await?;
 
-    // connect to the bus socket and pipe it to vm socket
-
-    let vm_socket = VmSocket::bind(7070)?;
-
+    // get the address of the session bus
     let Address::Unix(addr) = Address::session()?;
 
-    let distro_name = std::env::var("WSL_DISTRO_NAME")? + "\r\n";
-    let user_name = whoami::username() + "\r\n";
-    let home_folder = std::env::var("HOME")? + "\r\n";
+    // prepare the header
+    let header = prepare_header()?;
 
-    let header = [
-        ((distro_name.len() + user_name.len() + home_folder.len()) as u32)
-            .to_le_bytes()
-            .as_ref(),
-        distro_name.as_bytes(),
-        user_name.as_bytes(),
-        home_folder.as_bytes(),
-    ]
-    .concat();
-
+    let vm_socket = VmSocket::bind(7070)?;
     loop {
-        let mut buffer = [0; 9];
-
         let mut vm_stream = vm_socket.accept()?;
         let mut dbus_stream = UnixStream::connect(Path::new(&addr)).await?;
 
         vm_stream.write_all(&header).await?;
 
-        // FIXME: DOS
-        vm_stream.read_exact(&mut buffer).await?;
-        if buffer != CONNECT {
-            log::warn!("unknown reply");
-            continue;
-        }
-
         tokio::spawn(async move {
             tokio::io::copy_bidirectional(&mut dbus_stream, &mut vm_stream).await
         });
+    }
+}
+
+pub fn prepare_header() -> Result<Vec<u8>, Box<dyn Error>> {
+    let info = DistroInfo::new(
+        std::env::var("WSL_DISTRO_NAME")?,
+        whoami::username(),
+        std::env::var("HOME")?,
+    );
+
+    let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
+    let info_bytes = zvariant::to_bytes(ctxt, &info)?;
+
+    let header = [
+        (info_bytes.len() as u32).to_le_bytes().as_ref(),
+        &info_bytes,
+    ]
+    .concat();
+
+    Ok(header)
+}
+
+#[derive(Serialize, Type)]
+struct DistroInfo {
+    distro_name: String,
+    user_name: String,
+    home_folder: String,
+}
+
+impl DistroInfo {
+    pub fn new(distro_name: String, user_name: String, home_folder: String) -> Self {
+        Self {
+            distro_name,
+            home_folder,
+            user_name,
+        }
     }
 }
