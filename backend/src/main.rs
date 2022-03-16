@@ -2,14 +2,14 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use single_instance::SingleInstance;
 use tokio::{io::AsyncReadExt, net::TcpStream};
-use util::{vmcompute, vmsocket};
+use util::vmcompute;
 use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
     UI::HiDpi::{SetProcessDpiAwareness, PROCESS_PER_MONITOR_DPI_AWARE},
 };
 use zvariant::Type;
 
-use crate::util::wslpath;
+use crate::util::{vmsocket::HyperVSocket, wslpath};
 
 mod proxies;
 mod services;
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
 
     // Connect to the bridge.
-    let mut stream = vmsocket::HyperVSocket::connect(vmcompute::get_wsl_vmid()?, 7070)?;
+    let mut stream = HyperVSocket::connect(vmcompute::get_wsl_vmid()?, 7070)?;
 
     // Read the header from the stream.
     let distro_info = read_header(&mut stream).await?;
