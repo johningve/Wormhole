@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use single_instance::SingleInstance;
-use tokio::io::AsyncReadExt;
+use tokio::{io::AsyncReadExt, net::TcpStream};
 use util::{vmcompute, vmsocket};
 use windows::Win32::{
     System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
@@ -55,21 +55,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // The process DPI awareness must be set, otherwise shell file dialogs will not be DPI aware either.
     unsafe { SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) }.unwrap();
+    // Initialize the COM library.
     unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED) }.unwrap();
 
+    // Connect to the bridge.
     let mut stream = vmsocket::HyperVSocket::connect(vmcompute::get_wsl_vmid()?, 7070)?;
 
-    // read the header size
-    let mut size_buffer: [u8; 4] = [0; 4];
-    stream.read_exact(&mut size_buffer).await?;
-
-    // read the header
-    let mut header_buffer = vec![0; u32::from_le_bytes(size_buffer) as _];
-    stream.read_exact(&mut header_buffer).await?;
-
-    let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
-    let distro_info: DistroInfo = zvariant::from_slice(&header_buffer, ctxt)?;
+    // Read the header from the stream.
+    let distro_info = read_header(&mut stream).await?;
 
     CONFIG_INSTANCE
         .set(Config {
@@ -80,8 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let connection = zbus::ConnectionBuilder::socket(stream)
         .wsl_info(
-            distro_info.user_name,
-            wslpath::to_windows(distro_info.home_folder)
+            &distro_info.user_name,
+            wslpath::to_windows(&distro_info.home_folder)
                 .to_str()
                 .unwrap(),
         )
@@ -115,9 +110,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn read_header(stream: &mut TcpStream) -> anyhow::Result<DistroInfo> {
+    // read the header size
+    let mut size_buffer: [u8; 4] = [0; 4];
+    stream.read_exact(&mut size_buffer).await?;
+
+    // read the header
+    let mut header_buffer = vec![0; u32::from_le_bytes(size_buffer) as _];
+    stream.read_exact(&mut header_buffer).await?;
+
+    let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
+    let distro_info: DistroInfo = zvariant::from_slice(&header_buffer, ctxt)?;
+
+    Ok(distro_info)
+}
+
 #[derive(Deserialize, Type)]
-struct DistroInfo<'a> {
-    pub distro_name: &'a str,
-    pub user_name: &'a str,
-    pub home_folder: &'a str,
+struct DistroInfo {
+    pub distro_name: String,
+    pub user_name: String,
+    pub home_folder: String,
 }
