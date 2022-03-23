@@ -33,6 +33,7 @@ pub struct ToastHelper {
 impl ToastHelper {
     pub fn new(
         tag: &str,
+        app_name: &str,
         summary: &str,
         body: &str,
         image: Option<&str>,
@@ -54,12 +55,14 @@ impl ToastHelper {
                 <binding template="ToastGeneric">
                     <text id="1">{heading}</text>
                     <text id="2">{content}</text>
+                    <text placement="attribution">{app_name}</text>
                     {image}
                     <!-- <image placement="appLogoOverride" hint-crop="circle" src="file:///c:/path_to_image_above_toast.jpg" alt="alt text" /> -->
                     <!-- <image placement="Hero" src="file:///C:/path_to_image_in_toast.jpg" alt="alt text2" /> -->
                     <!-- <image id="1" src="file:///..." alt="another_image" /> -->
                 </binding>
             </visual>"#,
+            app_name = escape_str_pcdata(app_name),
             heading = escape_str_pcdata(summary),
             content = escape_str_pcdata(body),
             image = image,

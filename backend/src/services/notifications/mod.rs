@@ -77,6 +77,7 @@ impl Notifications {
 
         let toast = ToastHelper::new(
             &id.to_string(),
+            notification.app_name,
             notification.summary,
             notification.body,
             if !icon.is_empty() { Some(&icon) } else { None }, // cool
@@ -173,7 +174,7 @@ impl Notifications {
         #[zbus(signal_context)] ctx: SignalContext<'_>,
         notification: Notification<'_>,
     ) -> u32 {
-        log::debug!("notify {:#?}", notification);
+        // log::debug!("notify {:#?}", notification);
 
         match self.notify_internal(ctx, notification).await {
             Ok(id) => id,
