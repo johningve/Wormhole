@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use regex::Regex;
 use std::path::{Component, Path, PathBuf, Prefix};
 use windows::Win32::Storage::FileSystem::GetLogicalDrives;
@@ -35,32 +35,45 @@ pub fn to_windows(mut wsl_path: &str) -> PathBuf {
 }
 
 pub fn to_wsl(win_path: &Path) -> anyhow::Result<String> {
+    if !win_path.is_absolute() {
+        bail!("relative paths are not supported")
+    }
+
     let mut wsl_path = String::new();
-    for component in win_path.components() {
+    let mut components = win_path.components();
+
+    let first = components.next();
+    match first {
+        Some(Component::Prefix(pfx)) => match pfx.kind() {
+            Prefix::VerbatimDisk(letter) | Prefix::Disk(letter) => {
+                wsl_path.push_str(&format!("/mnt/{}", letter.to_ascii_lowercase() as char))
+            }
+            Prefix::VerbatimUNC(server, share) | Prefix::UNC(server, share) => {
+                if server.to_string_lossy() != "wsl.localhost"
+                    || share.to_string_lossy() != Config::global().distro_name()
+                {
+                    bail!("network share not supported: {:?}", first);
+                }
+            }
+            _ => bail!("unsupported path prefix: {:?}", first),
+        },
+        None => bail!("path is empty"),
+        _ => bail!("unsupported path component: {:?}", first),
+    }
+
+    for component in components {
         match component {
-            Component::Prefix(pfx) => match pfx.kind() {
-                Prefix::Disk(letter) => {
-                    wsl_path.push_str(&format!("/mnt/{}", letter.to_ascii_lowercase() as char))
-                }
-                Prefix::UNC(server, share) => {
-                    if server.to_string_lossy() != "wsl.localhost"
-                        || share.to_string_lossy() != Config::global().distro_name()
-                    {
-                        bail!("network share not supported: {:?}", component);
-                    }
-                }
-                _ => bail!("unsupported path prefix: {:?}", component),
-            },
-            Component::RootDir => wsl_path.push('/'),
             Component::Normal(c) => {
                 if !wsl_path.ends_with('/') {
                     wsl_path.push('/');
                 }
                 wsl_path.push_str(&c.to_string_lossy());
             }
+            Component::RootDir => wsl_path.push('/'),
             _ => bail!("unsupported path component: {:?}", component),
         }
     }
+
     Ok(wsl_path)
 }
 
@@ -145,7 +158,18 @@ mod tests {
             "/mnt/c/Users/admin"
         );
         assert_eq!(
+            to_wsl(&PathBuf::from("\\\\?\\C:\\Users\\admin")).unwrap(),
+            "/mnt/c/Users/admin"
+        );
+        assert_eq!(
             to_wsl(&PathBuf::from("\\\\wsl.localhost\\Ubuntu\\home\\admin")).unwrap(),
+            "/home/admin"
+        );
+        assert_eq!(
+            to_wsl(&PathBuf::from(
+                "\\\\?\\UNC\\wsl.localhost\\Ubuntu\\home\\admin"
+            ))
+            .unwrap(),
             "/home/admin"
         );
     }
