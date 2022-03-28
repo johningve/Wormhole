@@ -1,59 +1,29 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    convert::TryFrom,
-    ffi::c_void,
     sync::{mpsc, Arc, Mutex},
 };
 
 use anyhow::bail;
-use futures::StreamExt;
-use scopeguard::defer;
 use windows::Win32::{
-    Foundation::{BOOL, ERROR_FILE_NOT_FOUND, HWND, LPARAM, LRESULT, PSTR, WPARAM},
-    System::{
-        LibraryLoader::GetModuleHandleA,
-        Registry::{
-            RegCloseKey, RegCreateKeyExA, RegGetValueA, RegSetKeyValueA, HKEY, HKEY_CURRENT_USER,
-            KEY_QUERY_VALUE, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, RRF_RT_REG_DWORD,
-        },
-    },
-    UI::{
-        Controls::RichEdit::WM_CONTEXTMENU,
-        WindowsAndMessaging::{
-            CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetSystemMetrics,
-            PostQuitMessage, RegisterClassA, SetForegroundWindow, TrackPopupMenuEx,
-            TranslateMessage, CW_USEDEFAULT, HMENU, MSG, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN,
-            TPM_RIGHTALIGN, TPM_RIGHTBUTTON, WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP,
-            WM_RBUTTONUP, WNDCLASSA, WS_OVERLAPPEDWINDOW,
-        },
+    Foundation::{BOOL, HWND, LPARAM, LRESULT, PSTR, WPARAM},
+    System::LibraryLoader::GetModuleHandleA,
+    UI::WindowsAndMessaging::{
+        CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, GetSystemMetrics,
+        PostQuitMessage, RegisterClassA, SetForegroundWindow, TrackPopupMenuEx, TranslateMessage,
+        CW_USEDEFAULT, HMENU, MSG, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN,
+        TPM_RIGHTBUTTON, WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSA,
+        WS_OVERLAPPEDWINDOW,
     },
 };
-use zbus::{
-    names::{BusName, OwnedBusName},
-    Connection,
-};
+use zbus::names::{BusName, OwnedBusName};
 use zvariant::{ObjectPath, OwnedObjectPath};
 
 use super::{indicator::Indicator, menu::Win32Menu};
 
-use crate::{
-    hiword, loword,
-    proxies::{
-        menu::DBusMenuProxy,
-        status_notifier_item::StatusNotifierItemProxy,
-        status_notifier_watcher::{
-            StatusNotifierItemRegisteredStream, StatusNotifierItemUnregisteredStream,
-            StatusNotifierWatcherProxy,
-        },
-    },
-    util::as_win32_result,
-    REGISTRY_ROOT_KEY,
-};
+use crate::{hiword, loword, proxies::status_notifier_item::StatusNotifierItemProxy};
 
 const WINDOW_CLASS_NAME: &[u8] = b"__hidden__\0";
-
-const INDICATORS_KEY: &str = "Indicators";
 
 pub const WMAPP_NOTIFYCALLBACK: u32 = WM_APP + 1;
 pub const WMAPP_SHOWMENU: u32 = WM_APP + 2;
@@ -88,6 +58,7 @@ impl ToString for IndicatorID {
 }
 
 struct HostInner {
+    next_id: u16,
     items: HashMap<IndicatorID, Indicator>,
     by_id: HashMap<u16, IndicatorID>,
 }
@@ -103,6 +74,7 @@ impl StatusNotifierHost {
         let mut host = StatusNotifierHost {
             hwnd: HWND::default(),
             inner: Arc::new(Mutex::new(HostInner {
+                next_id: 0,
                 items: HashMap::new(),
                 by_id: HashMap::new(),
             })),
@@ -312,7 +284,9 @@ impl StatusNotifierHost {
             return Ok(false);
         }
 
-        let id = get_id(app_id)?;
+        let id = inner.next_id;
+        inner.next_id += 1;
+
         inner.by_id.insert(id, dest.clone());
         inner
             .items
@@ -351,92 +325,5 @@ impl StatusNotifierHost {
         let inner = self.inner.lock().unwrap();
         let service = inner.by_id.get(&id)?;
         inner.items.get(service).cloned()
-    }
-}
-
-fn read_id(key: HKEY, value: &str) -> windows::core::Result<u16> {
-    log::debug!("read_id");
-
-    let mut id: u32 = 0;
-    let mut id_len: u32 = std::mem::size_of::<u32>() as _;
-
-    as_win32_result(unsafe {
-        RegGetValueA(
-            key,
-            None,
-            value,
-            RRF_RT_REG_DWORD,
-            std::ptr::null_mut(),
-            &mut id as *mut _ as *mut c_void,
-            &mut id_len,
-        )
-    })?;
-
-    Ok(id as _)
-}
-
-fn write_id(key: HKEY, value: &str, id: u16) -> windows::core::Result<()> {
-    log::debug!("write_id");
-
-    let mut id = id as u32;
-    let id_len: u32 = std::mem::size_of::<u32>() as _;
-
-    as_win32_result(unsafe {
-        RegSetKeyValueA(
-            key,
-            None,
-            value,
-            REG_DWORD,
-            &mut id as *mut _ as *mut c_void,
-            id_len,
-        )
-    })?;
-
-    Ok(())
-}
-
-fn inc_id(key: HKEY) -> windows::core::Result<u16> {
-    log::debug!("inc_id");
-
-    let id = match read_id(key, "__next_id") {
-        Ok(id) => id,
-        Err(e) if e.win32_error() == Some(ERROR_FILE_NOT_FOUND) => 1,
-        Err(e) => return Err(e),
-    };
-    write_id(key, "__next_id", id + 1)?;
-    Ok(id)
-}
-
-fn get_id(app_id: &str) -> windows::core::Result<u16> {
-    log::debug!("get_id");
-
-    let mut key = HKEY::default();
-
-    as_win32_result(unsafe {
-        RegCreateKeyExA(
-            HKEY_CURRENT_USER,
-            format!("{}\\{}", REGISTRY_ROOT_KEY, INDICATORS_KEY),
-            0,
-            None,
-            REG_OPTION_NON_VOLATILE,
-            KEY_WRITE | KEY_QUERY_VALUE,
-            std::ptr::null(),
-            &mut key,
-            std::ptr::null_mut(),
-        )
-    })?;
-
-    defer! {
-        unsafe { RegCloseKey(key) };
-    }
-
-    match read_id(key, app_id) {
-        Ok(id) => Ok(id),
-        Err(e) if e.win32_error() == Some(ERROR_FILE_NOT_FOUND) => {
-            let id = inc_id(key)?;
-            write_id(key, app_id, id)?;
-            Ok(id)
-        }
-        Err(e) => Err(e),
     }
 }
