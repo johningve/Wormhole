@@ -140,7 +140,11 @@ impl Indicator {
                 .await?;
 
             let mut inner = self.0.lock().unwrap();
-            inner.menu = Some(Menu::new(inner.icon.id, menu_proxy)?);
+
+            // TODO: should probably check if the menu path changed.
+            if inner.menu.is_none() {
+                inner.menu = Some(Menu::new(inner.icon.id, menu_proxy)?);
+            }
         }
 
         Ok(())
