@@ -270,11 +270,7 @@ impl StatusNotifierHost {
         Ok(())
     }
 
-    pub fn insert_item(
-        &self,
-        app_id: &str,
-        proxy: StatusNotifierItemProxy<'static>,
-    ) -> anyhow::Result<bool> {
+    pub fn insert_item(&self, proxy: StatusNotifierItemProxy<'static>) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
 
         let dest = IndicatorID::new(proxy.destination(), proxy.path());
