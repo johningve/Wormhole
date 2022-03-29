@@ -1,8 +1,8 @@
 use windows::Win32::{
     Foundation::HWND,
     UI::Shell::{
-        Shell_NotifyIconA, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
-        NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAA, NOTIFYICONDATAA_0, NOTIFYICON_VERSION_4,
+        Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
+        NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
     },
 };
 
@@ -15,7 +15,7 @@ pub struct SysTrayIcon {
     pub id: u16,
     pub hwnd: HWND,
     icon: Icon,
-    tooltip: String,
+    tooltip: Vec<u16>,
     shown: bool,
 }
 
@@ -25,7 +25,7 @@ impl SysTrayIcon {
             id,
             hwnd,
             icon: Icon::default(),
-            tooltip: String::from(""),
+            tooltip: vec![0u16],
             shown: false,
         }
     }
@@ -33,11 +33,11 @@ impl SysTrayIcon {
     pub fn update(&mut self, icon: Option<Icon>, tooltip: Option<&str>) {
         log::debug!("update");
 
-        let mut data = NOTIFYICONDATAA {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
+        let mut data = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as _,
             uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP | NIF_MESSAGE,
             uCallbackMessage: WMAPP_NOTIFYCALLBACK,
-            Anonymous: NOTIFYICONDATAA_0 {
+            Anonymous: NOTIFYICONDATAW_0 {
                 uVersion: NOTIFYICON_VERSION_4,
             },
             uID: self.id as _,
@@ -52,20 +52,22 @@ impl SysTrayIcon {
         };
 
         if let Some(tooltip) = tooltip {
-            self.tooltip = tooltip.to_string();
+            self.tooltip = tooltip.encode_utf16().chain([0u16]).collect();
         }
 
-        for (i, c) in data.szInfo.iter_mut().enumerate() {
+        for (i, c) in data.szTip.iter_mut().enumerate() {
             if i < self.tooltip.len() {
-                c.0 = self.tooltip.as_bytes()[i];
+                *c = self.tooltip[i];
+            } else {
+                break;
             }
         }
 
         let success = if !self.shown {
-            unsafe { Shell_NotifyIconA(NIM_ADD, &data) }.as_bool()
-                && unsafe { Shell_NotifyIconA(NIM_SETVERSION, &data) }.as_bool()
+            unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool()
+                && unsafe { Shell_NotifyIconW(NIM_SETVERSION, &data) }.as_bool()
         } else {
-            unsafe { Shell_NotifyIconA(NIM_MODIFY, &data) }.as_bool()
+            unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool()
         };
 
         if !success {
@@ -85,10 +87,10 @@ impl Drop for SysTrayIcon {
     fn drop(&mut self) {
         log::debug!("drop");
 
-        let data = NOTIFYICONDATAA {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAA>() as _,
+        let data = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as _,
             uCallbackMessage: WMAPP_NOTIFYCALLBACK,
-            Anonymous: NOTIFYICONDATAA_0 {
+            Anonymous: NOTIFYICONDATAW_0 {
                 uVersion: NOTIFYICON_VERSION_4,
             },
             uID: self.id as _,
@@ -96,6 +98,6 @@ impl Drop for SysTrayIcon {
             ..Default::default()
         };
 
-        unsafe { Shell_NotifyIconA(NIM_DELETE, &data) };
+        unsafe { Shell_NotifyIconW(NIM_DELETE, &data) };
     }
 }
