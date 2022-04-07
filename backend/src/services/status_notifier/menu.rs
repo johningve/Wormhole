@@ -326,7 +326,7 @@ impl Win32Menu {
             flags |= MF_DISABLED | MF_GRAYED;
         }
 
-        unsafe { AppendMenuW(self.0, flags, popup.into_handle().0 as _, None) }.ok()
+        unsafe { AppendMenuW(self.0, flags, popup.into_handle().0 as _, label) }.ok()
     }
 
     #[allow(clippy::needless_return)]

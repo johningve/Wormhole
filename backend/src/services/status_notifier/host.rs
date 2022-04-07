@@ -229,7 +229,7 @@ impl StatusNotifierHost {
     }
 
     async fn handle_notify_callback(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
-        let id = (lparam.0 >> 16) as u16;
+        let id = hiword!(lparam.0) as u16;
 
         let x = loword!(wparam.0) as i32;
         let y = hiword!(wparam.0) as i32;
