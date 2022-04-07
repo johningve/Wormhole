@@ -209,44 +209,6 @@ impl Menu {
     }
 }
 
-//     pub async fn show_context_menu(
-//         &self,
-//     ) -> anyhow::Result<impl FnOnce(HWND, POINT) -> windows::core::Result<()>> {
-//         let (_, layout) = self.get_proxy().get_layout(0, -1, PROPERTIES_USED).await?;
-
-//         let menu = self.build_menu(&layout)?;
-
-//         Ok(move |hwnd: HWND, point: POINT| {
-//             // TODO: not sure what effect this has
-//             unsafe { SetForegroundWindow(hwnd) };
-
-//             let flags = TPM_RIGHTBUTTON
-//                 | if unsafe { GetSystemMetrics(SM_MENUDROPALIGNMENT) } != 0 {
-//                     TPM_RIGHTALIGN
-//                 } else {
-//                     TPM_LEFTALIGN
-//                 };
-
-//             if !unsafe {
-//                 TrackPopupMenuEx(
-//                     menu.handle(),
-//                     flags,
-//                     point.x,
-//                     point.y,
-//                     hwnd,
-//                     std::ptr::null(),
-//                 )
-//             }
-//             .as_bool()
-//             {
-//                 return Err(windows::core::Error::from_win32());
-//             }
-
-//             Ok(())
-//         })
-//     }
-// }
-
 pub struct Win32Menu(HMENU);
 
 impl Drop for Win32Menu {
