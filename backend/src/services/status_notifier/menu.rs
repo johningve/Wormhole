@@ -127,7 +127,7 @@ impl Menu {
 
             if toggle_type == "checkmark" {
                 if !menu.check_item(id, checked) {
-                    bail!("failed to checck menu item");
+                    bail!("failed to check menu item");
                 }
             } else if toggle_type == "radio" {
                 menu.check_radio_item(id, checked)?;
@@ -249,12 +249,14 @@ impl Win32Menu {
         self.0
     }
 
+    /// Creates a horizontal "menu bar" menu.
     fn create() -> windows::core::Result<Self> {
         log::debug!("create");
 
         unsafe { CreateMenu() }.ok().map(Self)
     }
 
+    /// Creates a vertical "pop up" menu.
     fn create_popup() -> windows::core::Result<Self> {
         log::debug!("create_popup");
 
@@ -308,14 +310,12 @@ impl Win32Menu {
     fn check_radio_item(&self, id: u16, checked: bool) -> windows::core::Result<()> {
         log::debug!("check_radio_item");
 
-        unsafe { CheckMenuRadioItem(self.0, id as _, id as _, id as _, MF_BYCOMMAND) }.ok()
+        if checked {
+            unsafe { CheckMenuRadioItem(self.0, id as _, id as _, id as _, MF_BYCOMMAND) }.ok()
+        } else {
+            Ok(())
+        }
     }
-}
-
-enum ToggleType {
-    None,
-    Checkbox,
-    Radiobutton,
 }
 
 // TODO: make this faster
