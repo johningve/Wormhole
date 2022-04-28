@@ -119,9 +119,7 @@ impl StatusNotifierWatcher {
             .build()
             .await?;
 
-        let id = proxy.id().await?;
-
-        match self.host.insert_item(&id, proxy) {
+        match self.host.insert_item(proxy) {
             Ok(v) => {
                 Self::status_notifier_item_registered(&ctx, service).await?;
                 Self::registered_status_notifier_items_changed(self, &ctx).await?;

@@ -10,7 +10,6 @@ use windows::Win32::{
     Foundation::HWND,
     Graphics::Gdi::{GetDC, ReleaseDC},
 };
-use zvariant::OwnedObjectPath;
 
 use crate::{
     proxies::{
@@ -66,19 +65,11 @@ impl Indicator {
     async fn handle_updates(&self, mut close: oneshot::Receiver<()>) {
         let proxy = { self.0.lock().unwrap().proxy.clone() };
 
-        let mut new_status_stream = proxy.receive_new_status().await.unwrap();
-        let mut new_icon_stream = proxy.receive_new_icon().await.unwrap();
-        let mut new_attention_icon_stream = proxy.receive_new_attention_icon().await.unwrap();
-        let mut new_tooltip_stream = proxy.receive_new_tooltip().await.unwrap();
-        let mut new_menu_stream = proxy.receive_menu_changed().await;
+        let mut signals_stream = proxy.receive_all_signals().await.unwrap();
 
         // don't care about the contents of these signals, as none of them carry any arguments.
         while tokio::select! {
-            s = new_status_stream.next() => s.is_some(),
-            s = new_icon_stream.next() => s.is_some(),
-            s = new_attention_icon_stream.next() => s.is_some(),
-            s = new_tooltip_stream.next() => s.is_some(),
-            s = new_menu_stream.next() => s.is_some(),
+            s = signals_stream.next() => s.is_some(),
             _ = &mut close => false,
         } {
             self.update().await.unwrap();
@@ -113,7 +104,11 @@ impl Indicator {
 
         let icon = get_icon(hwnd, &icon_path, icon_pixmap)?;
 
-        let tooltip_text = format!("{}: {}", tooltip.title, tooltip.description);
+        let tooltip_text = match (tooltip.title.is_empty(), tooltip.description.is_empty()) {
+            (false, false) => format!("{}: {}", tooltip.title, tooltip.description),
+            (true, false) => tooltip.title,
+            _ => proxy.title().await.unwrap_or_default(),
+        };
 
         // TODO: might consider not updating icon if it has not changed
         self.0
@@ -145,7 +140,11 @@ impl Indicator {
                 .await?;
 
             let mut inner = self.0.lock().unwrap();
-            inner.menu = Some(Menu::new(inner.icon.id, menu_proxy)?);
+
+            // TODO: should probably check if the menu path changed.
+            if inner.menu.is_none() {
+                inner.menu = Some(Menu::new(inner.icon.id, menu_proxy)?);
+            }
         }
 
         Ok(())

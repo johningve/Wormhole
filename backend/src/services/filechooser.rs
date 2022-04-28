@@ -72,7 +72,9 @@ impl FileChooser {
         let file_types = FileTypes::from(&filters);
         let (count, ptr) = file_types.get_ptr();
         // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
-        unsafe { dialog.SetFileTypes(count, ptr) }?;
+        if !options.directory.unwrap_or_default() {
+            unsafe { dialog.SetFileTypes(count, ptr) }?;
+        }
 
         let choices = options.choices.unwrap_or_default();
         let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
