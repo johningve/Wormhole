@@ -34,10 +34,10 @@ fn main() -> Result<()> {
                 run_client(&mut stream)?;
                 break;
             }
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(e) => {
-                if e.kind() != ErrorKind::ConnectionRefused && e.kind() != ErrorKind::NotFound {
-                    bail!("an unknown error occurred: {}", e);
-                }
+                bail!("an unknown error occurred: {}", e);
             }
         };
 
