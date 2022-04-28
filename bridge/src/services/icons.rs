@@ -22,7 +22,8 @@ impl Icons {
         log::debug!("looking up icon: {}", icon);
 
         // first check if icon is a path to an existing icon
-        if Path::new(icon).is_file() {
+        let path = Path::new(icon);
+        if path.is_absolute() && path.is_file() {
             return icon.to_string();
         }
 
