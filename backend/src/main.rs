@@ -74,12 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     let connection = zbus::ConnectionBuilder::socket(stream)
-        .wsl_info(
-            &distro_info.user_name,
-            wslpath::to_windows(&distro_info.home_folder)
-                .to_str()
-                .unwrap(),
-        )
+        .wsl_uid(distro_info.uid)
         .internal_executor(false)
         .build()
         .await?;
@@ -129,5 +124,5 @@ async fn read_header(stream: &mut TcpStream) -> anyhow::Result<DistroInfo> {
 struct DistroInfo {
     pub distro_name: String,
     pub user_name: String,
-    pub home_folder: String,
+    pub uid: u32,
 }
