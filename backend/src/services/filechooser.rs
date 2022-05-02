@@ -3,14 +3,14 @@ use std::{collections::HashMap, path::Path};
 use regex::Regex;
 use widestring::WideCStr;
 use windows::core::Interface;
-use windows::core::GUID;
+use windows::Win32::System::Com::CLSCTX_INPROC_SERVER;
 use windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
     UI::Shell::{
-        Common::COMDLG_FILTERSPEC, IFileDialogCustomize, IFileOpenDialog, IFileSaveDialog,
-        IShellItem, SHCreateItemFromParsingName, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS,
-        SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+        Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialogCustomize,
+        IFileOpenDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
+        FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
     },
 };
 
@@ -21,10 +21,6 @@ use zvariant::OwnedObjectPath;
 use zvariant_derive::{DeserializeDict, SerializeDict, Type};
 
 use crate::util::wslpath;
-
-// TODO: replace when windows-rs provides these instead.
-const CLSID_FILE_OPEN_DIALOG: &str = "DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7";
-const CLSID_FILE_SAVE_DIALOG: &str = "C0B4E2F3-BA21-4773-8DBA-335EC946EB8B";
 
 #[derive(Default, Clone)]
 pub struct FileChooser {}
@@ -50,7 +46,7 @@ impl FileChooser {
         options: OpenFileOptions,
     ) -> anyhow::Result<OpenFileResults> {
         let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -125,7 +121,7 @@ impl FileChooser {
         options: SaveFileOptions,
     ) -> anyhow::Result<SaveFileResults> {
         let dialog: IFileSaveDialog =
-            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_SAVE_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&FileSaveDialog, None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -213,7 +209,7 @@ impl FileChooser {
         options: SaveFilesOptions,
     ) -> anyhow::Result<SaveFilesResults> {
         let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&GUID::from(CLSID_FILE_OPEN_DIALOG), None, CLSCTX_ALL) }?;
+            unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
@@ -233,6 +229,10 @@ impl FileChooser {
                 dialog.SetFolder(folder_item.unwrap())?;
             }
         }
+
+        let mut dialog_options = unsafe { dialog.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
+        dialog_options |= FOS_PICKFOLDERS;
+        unsafe { dialog.SetOptions(dialog_options as _) }?;
 
         let choices = options.choices.unwrap_or_default();
         let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
