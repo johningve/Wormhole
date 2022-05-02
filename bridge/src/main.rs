@@ -1,3 +1,4 @@
+use nix::unistd::Uid;
 use serde::Serialize;
 use std::{error::Error, path::Path};
 use tokio::{io::AsyncWriteExt, net::UnixStream};
@@ -60,7 +61,7 @@ pub fn prepare_header() -> Result<Vec<u8>, Box<dyn Error>> {
     let info = DistroInfo::new(
         std::env::var("WSL_DISTRO_NAME")?,
         whoami::username(),
-        std::env::var("HOME")?,
+        Uid::current().as_raw(),
     );
 
     let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
@@ -79,15 +80,15 @@ pub fn prepare_header() -> Result<Vec<u8>, Box<dyn Error>> {
 struct DistroInfo {
     distro_name: String,
     user_name: String,
-    home_folder: String,
+    uid: u32,
 }
 
 impl DistroInfo {
-    pub fn new(distro_name: String, user_name: String, home_folder: String) -> Self {
+    pub fn new(distro_name: String, user_name: String, uid: u32) -> Self {
         Self {
             distro_name,
-            home_folder,
             user_name,
+            uid,
         }
     }
 }
