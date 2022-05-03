@@ -2,7 +2,7 @@ use zbus::Connection;
 
 use self::{
     filechooser::FileChooser, notifications::Notifications,
-    status_notifier::host::StatusNotifierHost, status_notifier::watcher::StatusNotifierWatcher,
+    status_notifier::watcher::StatusNotifierWatcher,
 };
 
 pub mod filechooser;

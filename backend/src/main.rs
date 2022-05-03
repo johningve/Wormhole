@@ -9,7 +9,7 @@ use windows::Win32::{
 };
 use zvariant::Type;
 
-use crate::util::{vmsocket::HyperVSocket, wslpath};
+use crate::util::vmsocket::HyperVSocket;
 
 mod proxies;
 mod services;

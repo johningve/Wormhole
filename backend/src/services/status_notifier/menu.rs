@@ -13,9 +13,8 @@ use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     UI::WindowsAndMessaging::{
         AppendMenuW, CheckMenuItem, CheckMenuRadioItem, CreateMenu, CreatePopupMenu, DestroyMenu,
-        GetMenu, GetSystemMetrics, PostMessageA, SetForegroundWindow, SetMenu, TrackPopupMenuEx,
-        HMENU, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING,
-        MF_UNCHECKED, SM_MENUDROPALIGNMENT, TPM_LEFTALIGN, TPM_RIGHTALIGN, TPM_RIGHTBUTTON,
+        GetMenu, PostMessageA, SetMenu, HMENU, MF_BYCOMMAND, MF_CHECKED, MF_DISABLED, MF_GRAYED,
+        MF_POPUP, MF_SEPARATOR, MF_STRING, MF_UNCHECKED,
     },
 };
 use zvariant::Value;

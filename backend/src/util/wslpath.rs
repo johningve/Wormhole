@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use regex::Regex;
 use std::path::{Component, Path, PathBuf, Prefix};
 use windows::Win32::Storage::FileSystem::GetLogicalDrives;

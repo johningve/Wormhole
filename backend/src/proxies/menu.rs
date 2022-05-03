@@ -18,7 +18,6 @@ use zbus::{
     zvariant::{OwnedValue, Type, Value},
     Result,
 };
-use zvariant::{DeserializeDict, Optional, SerializeDict};
 
 #[dbus_proxy(interface = "com.canonical.dbusmenu")]
 trait DBusMenu {

@@ -1,16 +1,8 @@
-use std::{
-    collections::HashSet,
-    convert::TryFrom,
-    sync::{Arc, Mutex},
-};
+use std::convert::TryFrom;
 
 use futures::StreamExt;
-use windows::Win32::Security::ObjectDeleteAuditAlarmW;
-use zbus::{
-    dbus_interface, fdo,
-    names::{BusName, OwnedBusName},
-    Connection, MessageHeader, SignalContext,
-};
+
+use zbus::{dbus_interface, fdo, names::BusName, Connection, MessageHeader, SignalContext};
 use zvariant::ObjectPath;
 
 use crate::proxies::status_notifier_item::StatusNotifierItemProxy;

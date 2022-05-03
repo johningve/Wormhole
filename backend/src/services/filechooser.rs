@@ -1,4 +1,4 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::{collections::HashMap, path::Path};
 
 use regex::Regex;
@@ -8,11 +8,11 @@ use windows::Win32::System::Com::CLSCTX_INPROC_SERVER;
 use windows::Win32::UI::Shell::IFileDialog;
 use windows::Win32::{
     Foundation::PWSTR,
-    System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
+    System::Com::{CoCreateInstance, CoTaskMemFree},
     UI::Shell::{
         Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialogCustomize,
-        IFileOpenDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
-        FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+        IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+        _FILEOPENDIALOGOPTIONS,
     },
 };
 
@@ -20,11 +20,10 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use zbus::{dbus_interface, Connection};
 use zvariant::{OwnedObjectPath, OwnedValue, Value};
-use zvariant_derive::{DeserializeDict, SerializeDict, Type};
+use zvariant_derive::Type;
 
 use crate::util::wslpath;
 
-#[derive(Default, Clone)]
 pub struct FileChooser;
 
 enum DialogKind {
