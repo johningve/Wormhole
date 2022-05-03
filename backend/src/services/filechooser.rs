@@ -1,9 +1,11 @@
+use std::convert::{TryFrom, TryInto};
 use std::{collections::HashMap, path::Path};
 
 use regex::Regex;
 use widestring::WideCStr;
 use windows::core::Interface;
 use windows::Win32::System::Com::CLSCTX_INPROC_SERVER;
+use windows::Win32::UI::Shell::IFileDialog;
 use windows::Win32::{
     Foundation::PWSTR,
     System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL},
@@ -17,13 +19,19 @@ use windows::Win32::{
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use zbus::{dbus_interface, Connection};
-use zvariant::OwnedObjectPath;
+use zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zvariant_derive::{DeserializeDict, SerializeDict, Type};
 
 use crate::util::wslpath;
 
 #[derive(Default, Clone)]
-pub struct FileChooser {}
+pub struct FileChooser;
+
+enum DialogKind {
+    OpenFile,
+    SaveFile,
+    SaveFiles,
+}
 
 impl FileChooser {
     pub async fn init(connection: &Connection) -> zbus::Result<()> {
@@ -37,229 +45,131 @@ impl FileChooser {
         Ok(())
     }
 
-    fn open_file_sync(
-        &self,
-        _handle: OwnedObjectPath,
-        _app_id: &str,
-        _parent_window: &str,
+    fn show_dialog(
+        kind: DialogKind,
         title: &str,
-        options: OpenFileOptions,
-    ) -> anyhow::Result<OpenFileResults> {
-        let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }?;
+        options: HashMap<String, OwnedValue>,
+    ) -> anyhow::Result<HashMap<String, OwnedValue>> {
+        let class_id = match kind {
+            DialogKind::OpenFile => &FileOpenDialog,
+            DialogKind::SaveFile => &FileSaveDialog,
+            DialogKind::SaveFiles => &FileOpenDialog,
+        };
+
+        let dialog: IFileDialog =
+            unsafe { CoCreateInstance(class_id, None, CLSCTX_INPROC_SERVER) }?;
 
         unsafe { dialog.SetTitle(title) }?;
 
-        if let Some(accept_label) = &options.accept_label {
-            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
+        if let Some(label) = options.get("accept_label") {
+            unsafe { dialog.SetOkButtonLabel(<&str>::try_from(label)?) }?;
         }
 
-        let mut dialog_options = unsafe { dialog.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
-        if options.multiple.unwrap_or_default() {
-            dialog_options |= FOS_ALLOWMULTISELECT;
+        let mut directory = false;
+        if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFiles) {
+            let mut dialog_options = unsafe { dialog.cast::<IFileOpenDialog>()?.GetOptions() }?
+                as _FILEOPENDIALOGOPTIONS;
+            if let Some(multiple) = options.get("multiple") {
+                if bool::try_from(multiple)? {
+                    dialog_options |= FOS_ALLOWMULTISELECT;
+                }
+            }
+            if let Some(directory_value) = options.get("directory") {
+                if bool::try_from(directory_value)? {
+                    dialog_options |= FOS_PICKFOLDERS;
+                    directory = true;
+                }
+            }
+            if matches!(kind, DialogKind::SaveFiles) {
+                dialog_options |= FOS_PICKFOLDERS;
+                directory = true;
+            }
+            unsafe { dialog.SetOptions(dialog_options as _) }?;
         }
-        if options.directory.unwrap_or_default() {
-            dialog_options |= FOS_PICKFOLDERS;
-        }
-        unsafe { dialog.SetOptions(dialog_options as _) }?;
 
-        let filters = options.filters.unwrap_or_default();
+        let mut filters: Vec<FileFilter> = vec![];
         // file_types must not be dropped before the dialog itself is dropped.
-        let file_types = FileTypes::from(&filters);
-        let (count, ptr) = file_types.get_ptr();
-        // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
-        if !options.directory.unwrap_or_default() {
-            unsafe { dialog.SetFileTypes(count, ptr) }?;
+        let mut file_types = FileTypes::default();
+        if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFile) {
+            if let Some(filters_value) = options.get("filters") {
+                filters = <Vec<FileFilter>>::try_from(filters_value.clone())?;
+                file_types = FileTypes::from(filters.as_slice());
+                let (count, ptr) = file_types.get_ptr();
+                // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
+                if matches!(kind, DialogKind::SaveFile) || !directory {
+                    unsafe { dialog.SetFileTypes(count, ptr) }?;
+                }
+            }
         }
 
-        let choices = options.choices.unwrap_or_default();
-        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
-
-        let dialog_results = unsafe {
-            dialog.Show(None)?;
-            dialog.GetResults()?
+        let mut choices: Vec<Choice> = vec![];
+        let choices_id_mapping = if let Some(choices_value) = options.get("choices") {
+            choices = <Vec<Choice>>::try_from(choices_value.clone())?;
+            Self::add_choices(dialog.cast()?, choices.as_slice())?
+        } else {
+            HashMap::new()
         };
 
-        let mut uris = Vec::new();
+        unsafe { dialog.Show(None)? };
 
-        for i in 0..unsafe { dialog_results.GetCount() }? {
-            let item = unsafe { dialog_results.GetItemAt(i) }?;
-            let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-            let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-            unsafe { CoTaskMemFree(path_raw.0 as _) };
-            uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
-        }
+        let mut results = HashMap::<String, OwnedValue>::new();
 
-        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
+        let choices = Self::read_choices(dialog.cast()?, &choices, &choices_id_mapping)?;
+        results.insert(String::from("choices"), Value::try_from(choices)?.into());
 
-        let current_filter = {
+        if !directory {
             let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
             if file_type_index < file_types.indices.len() {
                 let filter_index = file_types.indices[file_type_index];
-                Some(filters[filter_index].clone())
-            } else {
-                None
-            }
-        };
-
-        drop(dialog);
-
-        Ok(OpenFileResults {
-            uris,
-            choices,
-            current_filter,
-            writable: Some(true),
-        })
-    }
-
-    fn save_file_sync(
-        &self,
-        _handle: OwnedObjectPath,
-        _app_id: &str,
-        _parent_window: &str,
-        title: &str,
-        options: SaveFileOptions,
-    ) -> anyhow::Result<SaveFileResults> {
-        let dialog: IFileSaveDialog =
-            unsafe { CoCreateInstance(&FileSaveDialog, None, CLSCTX_ALL) }?;
-
-        unsafe { dialog.SetTitle(title) }?;
-
-        if let Some(accept_label) = &options.accept_label {
-            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
-        }
-
-        if let Some(file_name) = &options.current_name {
-            unsafe { dialog.SetFileName(file_name.as_str()) }?;
-        }
-
-        let folder_item: Option<IShellItem>;
-
-        if let Some(folder) = options.current_folder {
-            unsafe {
-                let item: IShellItem = SHCreateItemFromParsingName(
-                    wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
-                    None,
-                )?;
-                folder_item = Some(item);
-                dialog.SetFolder(folder_item.unwrap())?;
+                results.insert(
+                    String::from("current_filter"),
+                    Value::try_from(filters[filter_index].clone())?.into(),
+                );
             }
         }
-
-        let file_item: Option<IShellItem>;
-
-        if let Some(file) = options.current_file {
-            unsafe {
-                let item: IShellItem = SHCreateItemFromParsingName(
-                    wslpath::to_windows(&String::from_utf8(file)?).as_os_str(),
-                    None,
-                )?;
-                file_item = Some(item);
-                dialog.SetSaveAsItem(file_item.unwrap())?;
-            }
-        }
-
-        let filters = options.filters.unwrap_or_default();
-        // file_types must not be dropped before the dialog itself is dropped.
-        let file_types = FileTypes::from(&filters);
-        let (count, ptr) = file_types.get_ptr();
-        // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
-        unsafe { dialog.SetFileTypes(count, ptr) }?;
-
-        let choices = options.choices.unwrap_or_default();
-        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
-
-        let item = unsafe {
-            dialog.Show(None)?;
-            dialog.GetResult()?
-        };
-
-        let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-        let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-        unsafe { CoTaskMemFree(path_raw.0 as _) };
-        let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
-
-        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
-
-        let current_filter = {
-            let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
-            if file_type_index < file_types.indices.len() {
-                let filter_index = file_types.indices[file_type_index];
-                Some(filters[filter_index].clone())
-            } else {
-                None
-            }
-        };
-
-        drop(dialog);
-
-        Ok(SaveFileResults {
-            uris: vec![uri],
-            choices,
-            current_filter,
-        })
-    }
-
-    fn save_files_sync(
-        &self,
-        _handle: OwnedObjectPath,
-        _app_id: &str,
-        _parent_window: &str,
-        title: &str,
-        options: SaveFilesOptions,
-    ) -> anyhow::Result<SaveFilesResults> {
-        let dialog: IFileOpenDialog =
-            unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL) }?;
-
-        unsafe { dialog.SetTitle(title) }?;
-
-        if let Some(accept_label) = &options.accept_label {
-            unsafe { dialog.SetOkButtonLabel(accept_label.as_str()) }?;
-        }
-
-        let folder_item: Option<IShellItem>;
-
-        if let Some(folder) = options.current_folder {
-            unsafe {
-                let item: IShellItem = SHCreateItemFromParsingName(
-                    wslpath::to_windows(&String::from_utf8(folder)?).as_os_str(),
-                    None,
-                )?;
-                folder_item = Some(item);
-                dialog.SetFolder(folder_item.unwrap())?;
-            }
-        }
-
-        let mut dialog_options = unsafe { dialog.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
-        dialog_options |= FOS_PICKFOLDERS;
-        unsafe { dialog.SetOptions(dialog_options as _) }?;
-
-        let choices = options.choices.unwrap_or_default();
-        let id_mapping = Self::add_choices(dialog.cast()?, &choices)?;
-
-        let folder_item = unsafe {
-            dialog.Show(None)?;
-            dialog.GetResult()?
-        };
-
-        let path_raw = unsafe { folder_item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-        let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-        unsafe { CoTaskMemFree(path_raw.0 as _) };
 
         let mut uris = Vec::new();
 
-        for name in options.files.unwrap_or_default() {
-            let full_path = Path::new(&path).join(String::from_utf8(name)?);
-            if full_path.exists() {
-                todo!()
+        match kind {
+            DialogKind::OpenFile => {
+                let dialog_results = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
+                for i in 0..unsafe { dialog_results.GetCount() }? {
+                    let item = unsafe { dialog_results.GetItemAt(i) }?;
+                    let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+                    let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+                    unsafe { CoTaskMemFree(path_raw.0 as _) };
+                    uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
+                }
             }
+            DialogKind::SaveFile => {
+                let item = unsafe { dialog.GetResult() }?;
+                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+                unsafe { CoTaskMemFree(path_raw.0 as _) };
+                let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
+                uris.push(uri);
+            }
+            DialogKind::SaveFiles => {
+                let item = unsafe { dialog.GetResult() }?;
+                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+                unsafe { CoTaskMemFree(path_raw.0 as _) };
 
-            uris.push(String::from("file://") + &wslpath::to_wsl(&full_path)?);
+                if let Some(files) = options.get("files") {
+                    for name in <Vec<Vec<u8>>>::try_from(files.clone())? {
+                        let full_path = Path::new(&path).join(String::from_utf8(name)?);
+                        if full_path.exists() {
+                            todo!()
+                        }
+                        uris.push(String::from("file://") + &wslpath::to_wsl(&full_path)?);
+                    }
+                }
+            }
         }
 
-        let choices = Self::read_choices(dialog.cast()?, &choices, &id_mapping)?;
+        results.insert(String::from("uris"), Value::try_from(uris)?.into());
 
-        Ok(SaveFilesResults { uris, choices })
+        Ok(results)
     }
 
     fn add_choices(
@@ -340,6 +250,7 @@ fn glob_patter_to_filter(glob_pattern: &str) -> String {
     filter
 }
 
+#[derive(Default)]
 struct FileTypes {
     // storage for the wide strings
     _wstrings: Vec<Vec<u16>>,
@@ -347,8 +258,8 @@ struct FileTypes {
     indices: Vec<usize>,
 }
 
-impl From<&Vec<FileFilter>> for FileTypes {
-    fn from(filters: &Vec<FileFilter>) -> Self {
+impl From<&[FileFilter]> for FileTypes {
+    fn from(filters: &[FileFilter]) -> Self {
         let mut wstrings = Vec::new();
         let mut file_types = Vec::new();
         let mut indices = Vec::new();
@@ -427,8 +338,8 @@ impl FileChooser {
         app_id: String,
         parent_window: String,
         title: String,
-        options: OpenFileOptions,
-    ) -> (u32, OpenFileResults) {
+        options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
         log::debug!("open_file called: ");
         log::debug!("\thandle: {}", handle.as_str());
         log::debug!("\tapp_id: {}", app_id);
@@ -436,17 +347,15 @@ impl FileChooser {
         log::debug!("\ttitle: {}", title);
         log::debug!("\toptions: {:?}", options);
 
-        let c = self.clone();
-
         match tokio::task::spawn_blocking(move || {
-            c.open_file_sync(handle, &app_id, &parent_window, &title, options)
+            Self::show_dialog(DialogKind::OpenFile {}, &title, options)
         })
         .await
         .map_err(|e| log::error!("open_file errored: {}", e))
         .and_then(|r| r.map_err(|e| log::error!("open_file errored: {}", e)))
         {
             Ok(r) => (0, r),
-            Err(_) => (1, OpenFileResults::default()),
+            Err(_) => (1, HashMap::new()),
         }
     }
 
@@ -456,8 +365,8 @@ impl FileChooser {
         app_id: String,
         parent_window: String,
         title: String,
-        options: SaveFileOptions,
-    ) -> (u32, SaveFileResults) {
+        options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
         log::debug!("save_file called: ");
         log::debug!("\thandle: {}", handle.as_str());
         log::debug!("\tapp_id: {}", app_id);
@@ -465,17 +374,15 @@ impl FileChooser {
         log::debug!("\ttitle: {}", title);
         log::debug!("\toptions: {:?}", options);
 
-        let c = self.clone();
-
         match tokio::task::spawn_blocking(move || {
-            c.save_file_sync(handle, &app_id, &parent_window, &title, options)
+            FileChooser::show_dialog(DialogKind::SaveFile {}, &title, options)
         })
         .await
         .map_err(|e| log::error!("save_file errored: {}", e))
         .and_then(|r| r.map_err(|e| log::error!("save_file errored: {}", e)))
         {
             Ok(r) => (0, r),
-            Err(_) => (1, SaveFileResults::default()),
+            Err(_) => (1, HashMap::new()),
         }
     }
 
@@ -485,8 +392,8 @@ impl FileChooser {
         app_id: String,
         parent_window: String,
         title: String,
-        options: SaveFilesOptions,
-    ) -> (u32, SaveFilesResults) {
+        options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
         log::debug!("save_files called: ");
         log::debug!("\thandle: {}", handle.as_str());
         log::debug!("\tapp_id: {}", app_id);
@@ -494,22 +401,20 @@ impl FileChooser {
         log::debug!("\ttitle: {}", title);
         log::debug!("\toptions: {:?}", options);
 
-        let c = self.clone();
-
         match tokio::task::spawn_blocking(move || {
-            c.save_files_sync(handle, &app_id, &parent_window, &title, options)
+            Self::show_dialog(DialogKind::SaveFiles {}, &title, options)
         })
         .await
         .map_err(|e| log::error!("save_files errored: {}", e))
         .and_then(|r| r.map_err(|e| log::error!("save_files errored: {}", e)))
         {
             Ok(r) => (0, r),
-            Err(_) => (1, SaveFilesResults::default()),
+            Err(_) => (1, HashMap::new()),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Type, Clone, Debug)]
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Value, OwnedValue)]
 /// A file filter, to limit the available file choices to a mimetype or a glob
 /// pattern.
 pub struct FileFilter {
@@ -517,7 +422,7 @@ pub struct FileFilter {
     filters: Vec<(FilterType, String)>,
 }
 
-#[derive(Serialize_repr, Clone, Deserialize_repr, PartialEq, Debug, Type)]
+#[derive(Serialize_repr, Clone, Deserialize_repr, PartialEq, Debug, Type, Value, OwnedValue)]
 #[repr(u32)]
 #[doc(hidden)]
 enum FilterType {
@@ -525,72 +430,11 @@ enum FilterType {
     MimeType = 1,
 }
 
-#[derive(Serialize, Deserialize, Type, Clone, Debug)]
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Value, OwnedValue)]
 /// Presents the user with a choice to select from or as a checkbox.
 pub struct Choice {
     id: String,
     label: String,
     choices: Vec<(String, String)>,
     initial_selection: String,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct OpenFileOptions {
-    accept_label: Option<String>,
-    modal: Option<bool>,
-    multiple: Option<bool>,
-    directory: Option<bool>,
-    filters: Option<Vec<FileFilter>>,
-    current_filter: Option<FileFilter>,
-    choices: Option<Vec<Choice>>,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct OpenFileResults {
-    uris: Vec<String>,
-    choices: Vec<(String, String)>,
-    current_filter: Option<FileFilter>,
-    writable: Option<bool>,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct SaveFileOptions {
-    accept_label: Option<String>,
-    modal: Option<bool>,
-    multiple: Option<bool>,
-    filters: Option<Vec<FileFilter>>,
-    current_filter: Option<FileFilter>,
-    choices: Option<Vec<Choice>>,
-    current_name: Option<String>,
-    current_folder: Option<Vec<u8>>,
-    current_file: Option<Vec<u8>>,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct SaveFileResults {
-    uris: Vec<String>,
-    choices: Vec<(String, String)>,
-    current_filter: Option<FileFilter>,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct SaveFilesOptions {
-    handle_token: Option<String>,
-    accept_label: Option<String>,
-    modal: Option<bool>,
-    choices: Option<Vec<Choice>>,
-    current_folder: Option<Vec<u8>>,
-    files: Option<Vec<Vec<u8>>>,
-}
-
-#[derive(DeserializeDict, SerializeDict, Type, Clone, Debug, Default)]
-#[zvariant(signature = "dict")]
-pub struct SaveFilesResults {
-    uris: Vec<String>,
-    choices: Vec<(String, String)>,
 }
