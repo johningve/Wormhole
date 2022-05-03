@@ -43,188 +43,267 @@ impl FileChooser {
 
         Ok(())
     }
+}
 
-    fn show_dialog(
-        kind: DialogKind,
-        title: &str,
+#[dbus_interface(name = "org.freedesktop.impl.portal.FileChooser")]
+impl FileChooser {
+    async fn open_file(
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
         options: HashMap<String, OwnedValue>,
-    ) -> anyhow::Result<HashMap<String, OwnedValue>> {
-        let class_id = match kind {
-            DialogKind::OpenFile => &FileOpenDialog,
-            DialogKind::SaveFile => &FileSaveDialog,
-            DialogKind::SaveFiles => &FileOpenDialog,
-        };
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        log::debug!("open_file called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
 
-        let dialog: IFileDialog =
-            unsafe { CoCreateInstance(class_id, None, CLSCTX_INPROC_SERVER) }?;
-
-        unsafe { dialog.SetTitle(title) }?;
-
-        if let Some(label) = options.get("accept_label") {
-            unsafe { dialog.SetOkButtonLabel(<&str>::try_from(label)?) }?;
+        match tokio::task::spawn_blocking(move || {
+            show_dialog(DialogKind::OpenFile {}, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("open_file errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("open_file errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, HashMap::new()),
         }
+    }
 
-        let mut directory = false;
-        if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFiles) {
-            let mut dialog_options = unsafe { dialog.cast::<IFileOpenDialog>()?.GetOptions() }?
-                as _FILEOPENDIALOGOPTIONS;
-            if let Some(multiple) = options.get("multiple") {
-                if bool::try_from(multiple)? {
-                    dialog_options |= FOS_ALLOWMULTISELECT;
-                }
+    async fn save_file(
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
+        options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        log::debug!("save_file called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
+
+        match tokio::task::spawn_blocking(move || {
+            show_dialog(DialogKind::SaveFile {}, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("save_file errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("save_file errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, HashMap::new()),
+        }
+    }
+
+    async fn save_files(
+        &mut self,
+        handle: OwnedObjectPath,
+        app_id: String,
+        parent_window: String,
+        title: String,
+        options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        log::debug!("save_files called: ");
+        log::debug!("\thandle: {}", handle.as_str());
+        log::debug!("\tapp_id: {}", app_id);
+        log::debug!("\tparent_window: {}", parent_window);
+        log::debug!("\ttitle: {}", title);
+        log::debug!("\toptions: {:?}", options);
+
+        match tokio::task::spawn_blocking(move || {
+            show_dialog(DialogKind::SaveFiles {}, &title, options)
+        })
+        .await
+        .map_err(|e| log::error!("save_files errored: {}", e))
+        .and_then(|r| r.map_err(|e| log::error!("save_files errored: {}", e)))
+        {
+            Ok(r) => (0, r),
+            Err(_) => (1, HashMap::new()),
+        }
+    }
+}
+
+fn show_dialog(
+    kind: DialogKind,
+    title: &str,
+    options: HashMap<String, OwnedValue>,
+) -> anyhow::Result<HashMap<String, OwnedValue>> {
+    let class_id = match kind {
+        DialogKind::OpenFile => &FileOpenDialog,
+        DialogKind::SaveFile => &FileSaveDialog,
+        DialogKind::SaveFiles => &FileOpenDialog,
+    };
+
+    let dialog: IFileDialog = unsafe { CoCreateInstance(class_id, None, CLSCTX_INPROC_SERVER) }?;
+
+    unsafe { dialog.SetTitle(title) }?;
+
+    if let Some(label) = options.get("accept_label") {
+        unsafe { dialog.SetOkButtonLabel(<&str>::try_from(label)?) }?;
+    }
+
+    let mut directory = false;
+    if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFiles) {
+        let mut dialog_options =
+            unsafe { dialog.cast::<IFileOpenDialog>()?.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
+        if let Some(multiple) = options.get("multiple") {
+            if bool::try_from(multiple)? {
+                dialog_options |= FOS_ALLOWMULTISELECT;
             }
-            if let Some(directory_value) = options.get("directory") {
-                if bool::try_from(directory_value)? {
-                    dialog_options |= FOS_PICKFOLDERS;
-                    directory = true;
-                }
-            }
-            if matches!(kind, DialogKind::SaveFiles) {
+        }
+        if let Some(directory_value) = options.get("directory") {
+            if bool::try_from(directory_value)? {
                 dialog_options |= FOS_PICKFOLDERS;
                 directory = true;
             }
-            unsafe { dialog.SetOptions(dialog_options as _) }?;
         }
+        if matches!(kind, DialogKind::SaveFiles) {
+            dialog_options |= FOS_PICKFOLDERS;
+            directory = true;
+        }
+        unsafe { dialog.SetOptions(dialog_options as _) }?;
+    }
 
-        let mut filters: Vec<FileFilter> = vec![];
-        // file_types must not be dropped before the dialog itself is dropped.
-        let mut file_types = FileTypes::default();
-        if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFile) {
-            if let Some(filters_value) = options.get("filters") {
-                filters = <Vec<FileFilter>>::try_from(filters_value.clone())?;
-                file_types = FileTypes::from(filters.as_slice());
-                let (count, ptr) = file_types.get_ptr();
-                // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
-                if matches!(kind, DialogKind::SaveFile) || !directory {
-                    unsafe { dialog.SetFileTypes(count, ptr) }?;
+    let mut filters: Vec<FileFilter> = vec![];
+    // file_types must not be dropped before the dialog itself is dropped.
+    let mut file_types = FileTypes::default();
+    if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFile) {
+        if let Some(filters_value) = options.get("filters") {
+            filters = <Vec<FileFilter>>::try_from(filters_value.clone())?;
+            file_types = FileTypes::from(filters.as_slice());
+            let (count, ptr) = file_types.get_ptr();
+            // SAFETY: we ensure that dialog is dropped before the file_types structure which holds the data.
+            if matches!(kind, DialogKind::SaveFile) || !directory {
+                unsafe { dialog.SetFileTypes(count, ptr) }?;
+            }
+        }
+    }
+
+    let mut choices: Vec<Choice> = vec![];
+    let choices_id_mapping = if let Some(choices_value) = options.get("choices") {
+        choices = <Vec<Choice>>::try_from(choices_value.clone())?;
+        add_choices(dialog.cast()?, choices.as_slice())?
+    } else {
+        HashMap::new()
+    };
+
+    unsafe { dialog.Show(None)? };
+
+    let mut results = HashMap::<String, OwnedValue>::new();
+
+    let choices = read_choices(dialog.cast()?, &choices, &choices_id_mapping)?;
+    results.insert(String::from("choices"), Value::try_from(choices)?.into());
+
+    if !directory {
+        let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
+        if file_type_index < file_types.indices.len() {
+            let filter_index = file_types.indices[file_type_index];
+            results.insert(
+                String::from("current_filter"),
+                Value::try_from(filters[filter_index].clone())?.into(),
+            );
+        }
+    }
+
+    let mut uris = Vec::new();
+
+    match kind {
+        DialogKind::OpenFile => {
+            let dialog_results = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
+            for i in 0..unsafe { dialog_results.GetCount() }? {
+                let item = unsafe { dialog_results.GetItemAt(i) }?;
+                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+                unsafe { CoTaskMemFree(path_raw.0 as _) };
+                uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
+            }
+        }
+        DialogKind::SaveFile => {
+            let item = unsafe { dialog.GetResult() }?;
+            let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+            let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+            unsafe { CoTaskMemFree(path_raw.0 as _) };
+            let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
+            uris.push(uri);
+        }
+        DialogKind::SaveFiles => {
+            let item = unsafe { dialog.GetResult() }?;
+            let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
+            let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
+            unsafe { CoTaskMemFree(path_raw.0 as _) };
+
+            if let Some(files) = options.get("files") {
+                for name in <Vec<Vec<u8>>>::try_from(files.clone())? {
+                    let full_path = Path::new(&path).join(String::from_utf8(name)?);
+                    if full_path.exists() {
+                        todo!()
+                    }
+                    uris.push(String::from("file://") + &wslpath::to_wsl(&full_path)?);
                 }
             }
         }
+    }
 
-        let mut choices: Vec<Choice> = vec![];
-        let choices_id_mapping = if let Some(choices_value) = options.get("choices") {
-            choices = <Vec<Choice>>::try_from(choices_value.clone())?;
-            Self::add_choices(dialog.cast()?, choices.as_slice())?
+    results.insert(String::from("uris"), Value::try_from(uris)?.into());
+
+    Ok(results)
+}
+
+fn add_choices(
+    dialog: IFileDialogCustomize,
+    choices: &[Choice],
+) -> windows::core::Result<HashMap<u32, &'_ str>> {
+    let mut id_mapping = HashMap::new();
+    let mut id = 0;
+
+    for choice in choices {
+        id_mapping.insert(id, choice.id.as_str());
+        if choice.choices.is_empty() {
+            unsafe {
+                dialog.AddCheckButton(id, choice.label.clone(), choice.initial_selection == "true")
+            }?;
         } else {
-            HashMap::new()
-        };
-
-        unsafe { dialog.Show(None)? };
-
-        let mut results = HashMap::<String, OwnedValue>::new();
-
-        let choices = Self::read_choices(dialog.cast()?, &choices, &choices_id_mapping)?;
-        results.insert(String::from("choices"), Value::try_from(choices)?.into());
-
-        if !directory {
-            let file_type_index = unsafe { dialog.GetFileTypeIndex() }? as usize;
-            if file_type_index < file_types.indices.len() {
-                let filter_index = file_types.indices[file_type_index];
-                results.insert(
-                    String::from("current_filter"),
-                    Value::try_from(filters[filter_index].clone())?.into(),
-                );
+            unsafe { dialog.AddMenu(id, choice.label.as_str()) }?;
+            for (item_id, item_label) in &choice.choices {
+                unsafe { dialog.AddControlItem(id, id + 1, item_label.as_str()) }?;
+                id_mapping.insert(id, item_id.as_str());
+                id += 1;
             }
         }
-
-        let mut uris = Vec::new();
-
-        match kind {
-            DialogKind::OpenFile => {
-                let dialog_results = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
-                for i in 0..unsafe { dialog_results.GetCount() }? {
-                    let item = unsafe { dialog_results.GetItemAt(i) }?;
-                    let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-                    let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-                    unsafe { CoTaskMemFree(path_raw.0 as _) };
-                    uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
-                }
-            }
-            DialogKind::SaveFile => {
-                let item = unsafe { dialog.GetResult() }?;
-                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-                unsafe { CoTaskMemFree(path_raw.0 as _) };
-                let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
-                uris.push(uri);
-            }
-            DialogKind::SaveFiles => {
-                let item = unsafe { dialog.GetResult() }?;
-                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-                unsafe { CoTaskMemFree(path_raw.0 as _) };
-
-                if let Some(files) = options.get("files") {
-                    for name in <Vec<Vec<u8>>>::try_from(files.clone())? {
-                        let full_path = Path::new(&path).join(String::from_utf8(name)?);
-                        if full_path.exists() {
-                            todo!()
-                        }
-                        uris.push(String::from("file://") + &wslpath::to_wsl(&full_path)?);
-                    }
-                }
-            }
-        }
-
-        results.insert(String::from("uris"), Value::try_from(uris)?.into());
-
-        Ok(results)
+        id += 1;
     }
 
-    fn add_choices(
-        dialog: IFileDialogCustomize,
-        choices: &[Choice],
-    ) -> windows::core::Result<HashMap<u32, &'_ str>> {
-        let mut id_mapping = HashMap::new();
-        let mut id = 0;
+    Ok(id_mapping)
+}
 
-        for choice in choices {
-            id_mapping.insert(id, choice.id.as_str());
+fn read_choices(
+    dialog: IFileDialogCustomize,
+    choices: &[Choice],
+    id_mapping: &HashMap<u32, &'_ str>,
+) -> windows::core::Result<Vec<(String, String)>> {
+    let mut choice_results = Vec::new();
+
+    for (id, choice_id) in id_mapping {
+        if let Some(choice) = choices.iter().find(|c| c.id == *choice_id) {
             if choice.choices.is_empty() {
-                unsafe {
-                    dialog.AddCheckButton(
-                        id,
-                        choice.label.clone(),
-                        choice.initial_selection == "true",
-                    )
-                }?;
+                let state = unsafe { dialog.GetCheckButtonState(*id) }?;
+                choice_results.push((choice_id.to_string(), state.as_bool().to_string()));
             } else {
-                unsafe { dialog.AddMenu(id, choice.label.as_str()) }?;
-                for (item_id, item_label) in &choice.choices {
-                    unsafe { dialog.AddControlItem(id, id + 1, item_label.as_str()) }?;
-                    id_mapping.insert(id, item_id.as_str());
-                    id += 1;
-                }
-            }
-            id += 1;
-        }
-
-        Ok(id_mapping)
-    }
-
-    fn read_choices(
-        dialog: IFileDialogCustomize,
-        choices: &[Choice],
-        id_mapping: &HashMap<u32, &'_ str>,
-    ) -> windows::core::Result<Vec<(String, String)>> {
-        let mut choice_results = Vec::new();
-
-        for (id, choice_id) in id_mapping {
-            if let Some(choice) = choices.iter().find(|c| c.id == *choice_id) {
-                if choice.choices.is_empty() {
-                    let state = unsafe { dialog.GetCheckButtonState(*id) }?;
-                    choice_results.push((choice_id.to_string(), state.as_bool().to_string()));
-                } else {
-                    let state = unsafe { dialog.GetSelectedControlItem(*id) }?;
-                    if let Some(item_id) = id_mapping.get(&state) {
-                        choice_results.push((choice_id.to_string(), item_id.to_string()));
-                    }
+                let state = unsafe { dialog.GetSelectedControlItem(*id) }?;
+                if let Some(item_id) = id_mapping.get(&state) {
+                    choice_results.push((choice_id.to_string(), item_id.to_string()));
                 }
             }
         }
-
-        Ok(choice_results)
     }
+
+    Ok(choice_results)
 }
 
 fn glob_patter_to_filter(glob_pattern: &str) -> String {
@@ -326,90 +405,6 @@ impl From<&[FileFilter]> for FileTypes {
 impl FileTypes {
     fn get_ptr(&self) -> (u32, *const COMDLG_FILTERSPEC) {
         (self.file_types.len() as _, self.file_types.as_ptr())
-    }
-}
-
-#[dbus_interface(name = "org.freedesktop.impl.portal.FileChooser")]
-impl FileChooser {
-    async fn open_file(
-        &mut self,
-        handle: OwnedObjectPath,
-        app_id: String,
-        parent_window: String,
-        title: String,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        log::debug!("open_file called: ");
-        log::debug!("\thandle: {}", handle.as_str());
-        log::debug!("\tapp_id: {}", app_id);
-        log::debug!("\tparent_window: {}", parent_window);
-        log::debug!("\ttitle: {}", title);
-        log::debug!("\toptions: {:?}", options);
-
-        match tokio::task::spawn_blocking(move || {
-            Self::show_dialog(DialogKind::OpenFile {}, &title, options)
-        })
-        .await
-        .map_err(|e| log::error!("open_file errored: {}", e))
-        .and_then(|r| r.map_err(|e| log::error!("open_file errored: {}", e)))
-        {
-            Ok(r) => (0, r),
-            Err(_) => (1, HashMap::new()),
-        }
-    }
-
-    async fn save_file(
-        &mut self,
-        handle: OwnedObjectPath,
-        app_id: String,
-        parent_window: String,
-        title: String,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        log::debug!("save_file called: ");
-        log::debug!("\thandle: {}", handle.as_str());
-        log::debug!("\tapp_id: {}", app_id);
-        log::debug!("\tparent_window: {}", parent_window);
-        log::debug!("\ttitle: {}", title);
-        log::debug!("\toptions: {:?}", options);
-
-        match tokio::task::spawn_blocking(move || {
-            FileChooser::show_dialog(DialogKind::SaveFile {}, &title, options)
-        })
-        .await
-        .map_err(|e| log::error!("save_file errored: {}", e))
-        .and_then(|r| r.map_err(|e| log::error!("save_file errored: {}", e)))
-        {
-            Ok(r) => (0, r),
-            Err(_) => (1, HashMap::new()),
-        }
-    }
-
-    async fn save_files(
-        &mut self,
-        handle: OwnedObjectPath,
-        app_id: String,
-        parent_window: String,
-        title: String,
-        options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        log::debug!("save_files called: ");
-        log::debug!("\thandle: {}", handle.as_str());
-        log::debug!("\tapp_id: {}", app_id);
-        log::debug!("\tparent_window: {}", parent_window);
-        log::debug!("\ttitle: {}", title);
-        log::debug!("\toptions: {:?}", options);
-
-        match tokio::task::spawn_blocking(move || {
-            Self::show_dialog(DialogKind::SaveFiles {}, &title, options)
-        })
-        .await
-        .map_err(|e| log::error!("save_files errored: {}", e))
-        .and_then(|r| r.map_err(|e| log::error!("save_files errored: {}", e)))
-        {
-            Ok(r) => (0, r),
-            Err(_) => (1, HashMap::new()),
-        }
     }
 }
 
