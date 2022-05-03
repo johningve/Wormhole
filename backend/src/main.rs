@@ -28,7 +28,6 @@ pub const REGISTRY_ROOT_KEY: &str = "Software\\DesktopPortalWSL";
 #[derive(Debug)]
 pub struct Config {
     distro_name: String,
-    user_name: String,
 }
 
 impl Config {
@@ -38,10 +37,6 @@ impl Config {
 
     pub fn distro_name(&self) -> &str {
         &self.distro_name
-    }
-
-    pub fn user_name(&self) -> &str {
-        &self.user_name
     }
 }
 
@@ -69,7 +64,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     CONFIG_INSTANCE
         .set(Config {
             distro_name: distro_info.distro_name.to_string(),
-            user_name: distro_info.user_name.to_string(),
         })
         .unwrap();
 
@@ -123,6 +117,5 @@ async fn read_header(stream: &mut TcpStream) -> anyhow::Result<DistroInfo> {
 #[derive(Deserialize, Type)]
 struct DistroInfo {
     pub distro_name: String,
-    pub user_name: String,
     pub uid: u32,
 }

@@ -128,7 +128,6 @@ mod tests {
     fn setup_config() -> Config {
         Config {
             distro_name: String::from("Ubuntu"),
-            user_name: String::from("test"),
         }
     }
 
