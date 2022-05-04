@@ -1,19 +1,18 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::{collections::HashMap, path::Path};
+use std::path::PathBuf;
 
 use regex::Regex;
+use scopeguard::defer;
 use widestring::WideCStr;
+
 use windows::core::Interface;
-use windows::Win32::System::Com::CLSCTX_INPROC_SERVER;
-use windows::Win32::UI::Shell::IFileDialog;
-use windows::Win32::{
-    Foundation::PWSTR,
-    System::Com::{CoCreateInstance, CoTaskMemFree},
-    UI::Shell::{
-        Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialogCustomize,
-        IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
-        _FILEOPENDIALOGOPTIONS,
-    },
+use windows::Win32::Foundation::PWSTR;
+use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER};
+use windows::Win32::UI::Shell::{
+    Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialog, IFileDialogCustomize,
+    IFileOpenDialog, IShellItem, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    _FILEOPENDIALOGOPTIONS,
 };
 
 use serde::{Deserialize, Serialize};
@@ -148,25 +147,29 @@ fn show_dialog(
         unsafe { dialog.SetOkButtonLabel(<&str>::try_from(label)?) }?;
     }
 
+    let mut multi_select = false;
+    if let Some(multiple) = options.get("multiple") {
+        multi_select = bool::try_from(multiple)?;
+    }
+
     let mut directory = false;
+    if let Some(directory_value) = options.get("directory") {
+        directory = bool::try_from(directory_value)?;
+    }
+
     if matches!(kind, DialogKind::OpenFile | DialogKind::SaveFiles) {
         let mut dialog_options =
             unsafe { dialog.cast::<IFileOpenDialog>()?.GetOptions() }? as _FILEOPENDIALOGOPTIONS;
-        if let Some(multiple) = options.get("multiple") {
-            if bool::try_from(multiple)? {
-                dialog_options |= FOS_ALLOWMULTISELECT;
-            }
-        }
-        if let Some(directory_value) = options.get("directory") {
-            if bool::try_from(directory_value)? {
-                dialog_options |= FOS_PICKFOLDERS;
-                directory = true;
-            }
-        }
-        if matches!(kind, DialogKind::SaveFiles) {
+
+        if directory || matches!(kind, DialogKind::SaveFiles) {
             dialog_options |= FOS_PICKFOLDERS;
             directory = true;
         }
+
+        if multi_select {
+            dialog_options |= FOS_ALLOWMULTISELECT;
+        }
+
         unsafe { dialog.SetOptions(dialog_options as _) }?;
     }
 
@@ -218,29 +221,21 @@ fn show_dialog(
             let dialog_results = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
             for i in 0..unsafe { dialog_results.GetCount() }? {
                 let item = unsafe { dialog_results.GetItemAt(i) }?;
-                let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-                let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-                unsafe { CoTaskMemFree(path_raw.0 as _) };
-                uris.push(String::from("file://") + &wslpath::to_wsl(Path::new(&path))?);
+                uris.push(String::from("file://") + &wslpath::to_wsl(&get_path(&item)?)?);
             }
         }
         DialogKind::SaveFile => {
             let item = unsafe { dialog.GetResult() }?;
-            let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-            let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-            unsafe { CoTaskMemFree(path_raw.0 as _) };
-            let uri = String::from("file://") + &wslpath::to_wsl(Path::new(&path))?;
+            let uri = String::from("file://") + &wslpath::to_wsl(&get_path(&item)?)?;
             uris.push(uri);
         }
         DialogKind::SaveFiles => {
             let item = unsafe { dialog.GetResult() }?;
-            let path_raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }?;
-            let path = unsafe { WideCStr::from_ptr_str(path_raw.0) }.to_os_string();
-            unsafe { CoTaskMemFree(path_raw.0 as _) };
+            let path = get_path(&item)?;
 
             if let Some(files) = options.get("files") {
                 for name in <Vec<Vec<u8>>>::try_from(files.clone())? {
-                    let full_path = Path::new(&path).join(String::from_utf8(name)?);
+                    let full_path = path.join(String::from_utf8(name)?);
                     if full_path.exists() {
                         todo!()
                     }
@@ -255,6 +250,17 @@ fn show_dialog(
     Ok(results)
 }
 
+fn get_path(item: &IShellItem) -> windows::core::Result<PathBuf> {
+    unsafe {
+        let path_raw = item.GetDisplayName(SIGDN_FILESYSPATH)?;
+        defer! { CoTaskMemFree(path_raw.0 as _) };
+        Ok(PathBuf::from(
+            // SAFETY: to_os_string() makes a copy of the string, so it is safe to free it afterwards
+            WideCStr::from_ptr_str(path_raw.0).to_os_string(),
+        ))
+    }
+}
+
 fn add_choices(
     dialog: IFileDialogCustomize,
     choices: &[Choice],
@@ -264,16 +270,20 @@ fn add_choices(
 
     for choice in choices {
         id_mapping.insert(id, choice.id.as_str());
-        if choice.choices.is_empty() {
+        if choice.selections.is_empty() {
             unsafe {
                 dialog.AddCheckButton(id, choice.label.clone(), choice.initial_selection == "true")
             }?;
         } else {
-            unsafe { dialog.AddMenu(id, choice.label.as_str()) }?;
-            for (item_id, item_label) in &choice.choices {
-                unsafe { dialog.AddControlItem(id, id + 1, item_label.as_str()) }?;
-                id_mapping.insert(id, item_id.as_str());
+            let menu_id = id;
+            unsafe { dialog.AddMenu(menu_id, choice.label.as_str()) }?;
+            for (item_id, item_label) in &choice.selections {
                 id += 1;
+                unsafe { dialog.AddControlItem(menu_id, id, item_label.as_str()) }?;
+                if &choice.initial_selection == item_id {
+                    unsafe { dialog.SetSelectedControlItem(menu_id, id) }?;
+                }
+                id_mapping.insert(id, item_id.as_str());
             }
         }
         id += 1;
@@ -291,7 +301,7 @@ fn read_choices(
 
     for (id, choice_id) in id_mapping {
         if let Some(choice) = choices.iter().find(|c| c.id == *choice_id) {
-            if choice.choices.is_empty() {
+            if choice.selections.is_empty() {
                 let state = unsafe { dialog.GetCheckButtonState(*id) }?;
                 choice_results.push((choice_id.to_string(), state.as_bool().to_string()));
             } else {
@@ -429,6 +439,6 @@ enum FilterType {
 pub struct Choice {
     id: String,
     label: String,
-    choices: Vec<(String, String)>,
+    selections: Vec<(String, String)>,
     initial_selection: String,
 }
