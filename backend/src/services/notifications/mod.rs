@@ -2,17 +2,23 @@ mod toasthelper;
 
 use std::{
     collections::{BTreeMap, HashMap},
+    convert::TryFrom,
+    env, fs,
+    path::PathBuf,
     sync::Mutex,
 };
 
+use image::{DynamicImage, ImageFormat, RgbImage, RgbaImage};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use windows::UI::Notifications::ToastDismissalReason;
 use zbus::{dbus_interface, Connection, SignalContext};
+use zvariant::{OwnedValue, Value};
 use zvariant_derive::Type;
 
 use self::toasthelper::ToastHelper;
-use crate::proxies::icons::IconsProxy;
+use crate::{proxies::icons::IconsProxy, util::wslpath};
 
 enum ToastEvent {
     Activated(String),
@@ -66,9 +72,9 @@ impl Notifications {
     async fn notify_internal(
         &self,
         ctx: SignalContext<'_>,
-        notification: Notification<'_>,
+        notification: Notification,
     ) -> anyhow::Result<u32> {
-        let icon = self.icons.lookup_icon(notification.app_icon, 64).await?;
+        let image_path = self.get_image_path(&notification).await?;
 
         let mut data = self.data.lock().expect("poisoned mutex");
 
@@ -77,11 +83,11 @@ impl Notifications {
 
         let toast = ToastHelper::new(
             &id.to_string(),
-            notification.app_name,
-            notification.summary,
-            notification.body,
-            if !icon.is_empty() { Some(&icon) } else { None }, // cool
-            notification.actions,
+            &notification.app_name,
+            &notification.summary,
+            &notification.body,
+            image_path,
+            &notification.actions,
         )?;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -146,6 +152,23 @@ impl Notifications {
 
         Ok(id)
     }
+
+    async fn get_image_path(&self, notification: &Notification) -> anyhow::Result<Option<PathBuf>> {
+        if let Some(value) = notification.hints.get("image-data") {
+            let image = Image::try_from(value.clone())?;
+            let path = image_to_file(image)?;
+            Ok(Some(path))
+        } else if let Some(value) = notification.hints.get("image-path") {
+            Ok(Some(wslpath::get_temp_copy(&String::try_from(
+                value.clone(),
+            )?)?))
+        } else if notification.app_icon.is_empty() {
+            Ok(None)
+        } else {
+            let path = self.icons.lookup_icon(&notification.app_icon, 128).await?;
+            Ok(Some(wslpath::get_temp_copy(&path)?))
+        }
+    }
 }
 
 #[dbus_interface(name = "org.freedesktop.Notifications")]
@@ -172,7 +195,7 @@ impl Notifications {
     async fn notify(
         &self,
         #[zbus(signal_context)] ctx: SignalContext<'_>,
-        notification: Notification<'_>,
+        notification: Notification,
     ) -> u32 {
         // log::debug!("notify {:#?}", notification);
 
@@ -220,14 +243,63 @@ impl<'a> ServerInformation<'_> {
     }
 }
 
-#[derive(Clone, Debug, Type, Serialize, Deserialize)]
-pub struct Notification<'a> {
-    pub app_name: &'a str,
+#[derive(Clone, Debug, Type, Serialize, Deserialize, Value, OwnedValue)]
+pub struct Notification {
+    pub app_name: String,
     pub replaces_id: u32,
-    pub app_icon: &'a str,
-    pub summary: &'a str,
-    pub body: &'a str,
-    pub actions: Vec<&'a str>,
-    pub hints: HashMap<&'a str, zvariant::Value<'a>>,
+    pub app_icon: String,
+    pub summary: String,
+    pub body: String,
+    pub actions: Vec<String>,
+    pub hints: HashMap<String, zvariant::OwnedValue>,
     pub expire_timeout: i32,
+}
+
+#[derive(Clone, Debug, Type, Serialize, Deserialize, Value, OwnedValue)]
+pub struct Image {
+    pub width: i32,
+    pub height: i32,
+    pub rowstride: i32,
+    pub has_alpha: bool,
+    pub bits_per_sample: i32,
+    pub channels: i32,
+    pub data: Vec<u8>,
+}
+
+fn image_to_file(image: Image) -> anyhow::Result<PathBuf> {
+    let i = if image.has_alpha {
+        DynamicImage::ImageRgba8(
+            RgbaImage::from_raw(image.width as _, image.height as _, image.data).unwrap(),
+        )
+    } else {
+        DynamicImage::ImageRgb8(
+            RgbImage::from_raw(image.width as _, image.height as _, image.data).unwrap(),
+        )
+    };
+
+    let mut path = env::temp_dir();
+    path.push("Wormhole");
+    path.push("notify-images");
+
+    if !path.exists() {
+        fs::create_dir_all(&path)?;
+    }
+
+    if !path.is_dir() {
+        panic!("expected a directory!");
+    }
+
+    path.push(random_string(12) + ".png");
+
+    i.save_with_format(&path, ImageFormat::Png)?;
+
+    Ok(path)
+}
+
+fn random_string(n: usize) -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(n)
+        .map(char::from)
+        .collect()
 }

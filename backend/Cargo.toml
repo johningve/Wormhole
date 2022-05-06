@@ -40,6 +40,7 @@ bimap = "0.6"
 lazy_static = "1.4"
 single-instance = "0.3"
 byteorder = "1.4"
+rand = "0.8"
 
 zbus = { path = "../../zbus/zbus", features = ["tokio", "wsl"] }
 zvariant = { path = "../../zbus/zvariant" }

@@ -88,7 +88,7 @@ pub fn get_temp_copy(wsl_file_path: &str) -> std::io::Result<PathBuf> {
     }
 
     let mut win_dest_path = std::env::temp_dir();
-    win_dest_path.push("WSLPortal");
+    win_dest_path.push("Wormhole");
     win_dest_path.push(win_src_path.strip_prefix(&network_share).unwrap());
 
     let src_metadata = std::fs::metadata(&win_src_path)?;

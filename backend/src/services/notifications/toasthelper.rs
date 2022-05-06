@@ -1,4 +1,6 @@
 extern crate xml;
+use std::path::PathBuf;
+
 use windows::core::{IInspectable, Interface, HSTRING};
 use xml::escape::{escape_str_attribute, escape_str_pcdata};
 
@@ -24,8 +26,6 @@ use windows::{
 //https://social.msdn.microsoft.com/Forums/Windows/en-US/99e0d4bd-07cb-4ebd-8c92-c44ac6e7e5de/toast-notification-dismissed-event-handler-not-called-every-time?forum=windowsgeneraldevelopmentissues
 pub use windows::core::Error;
 
-use crate::util::wslpath;
-
 pub struct ToastHelper {
     toast: ToastNotification,
 }
@@ -36,11 +36,10 @@ impl ToastHelper {
         app_name: &str,
         summary: &str,
         body: &str,
-        image: Option<&str>,
-        actions: Vec<&str>,
+        image: Option<PathBuf>,
+        actions: &[String],
     ) -> anyhow::Result<ToastHelper> {
-        let image = if image.is_some() {
-            let image_path = wslpath::get_temp_copy(image.unwrap())?;
+        let image = if let Some(image_path) = image {
             log::debug!("using image: {}", image_path.as_os_str().to_string_lossy());
             format!(
                 r#"<image placement="appLogoOverride" src="file://{}" />"#,
@@ -80,8 +79,8 @@ impl ToastHelper {
                 actions_xml.push_str(
                     format!(
                         r#"<action content="{content}" arguments="{action}" />"#,
-                        content = escape_str_attribute(action[1]),
-                        action = escape_str_attribute(action[0])
+                        content = escape_str_attribute(&action[1]),
+                        action = escape_str_attribute(&action[0])
                     )
                     .as_str(),
                 );
