@@ -9,10 +9,13 @@ use widestring::WideCStr;
 use windows::core::Interface;
 use windows::Win32::Foundation::PWSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER};
-use windows::Win32::UI::Shell::{
-    Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialog, IFileDialogCustomize,
-    IFileOpenDialog, IShellItem, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
-    _FILEOPENDIALOGOPTIONS,
+use windows::Win32::UI::{
+    Shell::{
+        Common::COMDLG_FILTERSPEC, FileOpenDialog, FileSaveDialog, IFileDialog,
+        IFileDialogCustomize, IFileOpenDialog, IShellItem, FOS_ALLOWMULTISELECT, FOS_PICKFOLDERS,
+        SIGDN_FILESYSPATH, _FILEOPENDIALOGOPTIONS,
+    },
+    WindowsAndMessaging::GetForegroundWindow,
 };
 
 use serde::{Deserialize, Serialize};
@@ -196,7 +199,7 @@ fn show_dialog(
         HashMap::new()
     };
 
-    unsafe { dialog.Show(None)? };
+    unsafe { dialog.Show(GetForegroundWindow())? };
 
     let mut results = HashMap::<String, OwnedValue>::new();
 
