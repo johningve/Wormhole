@@ -184,7 +184,7 @@ impl Notifications {
 
     fn get_capabilities(&self) -> Vec<&str> {
         log::debug!("get_capabilities");
-        vec!["actions", "body"]
+        vec!["actions", "body", "icon-static", "persistence"]
     }
 
     fn get_server_information(&self) -> ServerInformation {
@@ -290,6 +290,13 @@ fn image_to_file(image: Image) -> anyhow::Result<PathBuf> {
     }
 
     path.push(random_string(12) + ".png");
+
+    log::debug!(
+        "saving image ({}x{}) to file: {}",
+        image.width,
+        image.height,
+        path.display()
+    );
 
     i.save_with_format(&path, ImageFormat::Png)?;
 

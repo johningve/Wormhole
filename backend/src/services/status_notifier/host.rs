@@ -187,14 +187,7 @@ impl StatusNotifierHost {
                 PostQuitMessage(0);
             }
             // pass the following to tokio task for async stuff
-            WM_COMMAND | WMAPP_NOTIFYCALLBACK => TX
-                .with(|c| {
-                    c.borrow()
-                        .as_ref()
-                        .unwrap()
-                        .blocking_send((msg, wparam, lparam))
-                })
-                .unwrap(),
+            WM_COMMAND | WMAPP_NOTIFYCALLBACK => Self::handle_async(msg, wparam, lparam),
             WMAPP_SHOWMENU => {
                 // TODO: not sure what effect this has
                 SetForegroundWindow(hwnd);
@@ -226,6 +219,15 @@ impl StatusNotifierHost {
             _ => return DefWindowProcA(hwnd, msg, wparam, lparam),
         };
         LRESULT(0)
+    }
+
+    /// handle_async is a helper for wndproc that sends the message to an async task where it can be handled instead.
+    fn handle_async(msg: u32, wparam: WPARAM, lparam: LPARAM) {
+        TX.with(|c| {
+            if let Some(tx) = c.borrow().as_ref() {
+                tx.blocking_send((msg, wparam, lparam)).unwrap()
+            }
+        })
     }
 
     async fn handle_notify_callback(&self, wparam: WPARAM, lparam: LPARAM) -> anyhow::Result<()> {
