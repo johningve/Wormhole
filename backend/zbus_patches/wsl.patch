@@ -1,0 +1,162 @@
+From 0e4ff1da6741f6b8e50d0fc213082a05684a57de Mon Sep 17 00:00:00 2001
+From: John Ingve Olsen <johningveolsen@gmail.com>
+Date: Mon, 31 Jan 2022 12:08:42 +0100
+Subject: [PATCH] add wsl feature
+
+---
+ zbus/Cargo.toml                |  1 +
+ zbus/src/connection_builder.rs | 18 ++++++++++++++++++
+ zbus/src/handshake.rs          | 14 ++++++++++++++
+ zbus/src/raw/handshake.rs      | 25 ++++++++++++++++++++++++-
+ 4 files changed, 57 insertions(+), 1 deletion(-)
+
+diff --git a/zbus/Cargo.toml b/zbus/Cargo.toml
+index e68a927..1e581b1 100644
+--- a/zbus/Cargo.toml
++++ b/zbus/Cargo.toml
+@@ -15,6 +15,7 @@ readme = "README.md"
+ default = ["async-io"]
+ xml = ["serde-xml-rs"]
+ gvariant = ["zvariant/gvariant"]
++wsl = []
+ 
+ [dependencies]
+ byteorder = "1.3.1"
+diff --git a/zbus/src/connection_builder.rs b/zbus/src/connection_builder.rs
+index 4af2f0c..3dfccf3 100644
+--- a/zbus/src/connection_builder.rs
++++ b/zbus/src/connection_builder.rs
+@@ -53,6 +53,8 @@ pub struct ConnectionBuilder<'a> {
+     interfaces: Interfaces<'a>,
+     names: HashSet<WellKnownName<'a>>,
+     auth_mechanisms: Option<VecDeque<AuthMechanism>>,
++    #[cfg(feature = "wsl")]
++    wsl_uid: Option<u32>,
+ }
+ 
+ assert_impl_all!(ConnectionBuilder<'_>: Send, Sync, Unpin);
+@@ -213,6 +215,13 @@ impl<'a> ConnectionBuilder<'a> {
+         Ok(self)
+     }
+ 
++    /// Provide information necessary to authenticate with a bus running in a WSL distro.
++    #[cfg(feature = "wsl")]
++    pub fn wsl_uid(mut self, uid: u32) -> Self {
++        self.wsl_uid = Some(uid);
++        self
++    }
++
+     /// Build the connection, consuming the builder.
+     ///
+     /// # Errors
+@@ -238,6 +247,13 @@ impl<'a> ConnectionBuilder<'a> {
+         let auth = match self.guid {
+             None => {
+                 // SASL Handshake
++                #[cfg(feature = "wsl")]
++                if let Some(wsl_uid) = self.wsl_uid {
++                    Authenticated::client_wsl(stream, wsl_uid, self.auth_mechanisms).await?
++                } else {
++                    Authenticated::client(stream, self.auth_mechanisms).await?
++                }
++                #[cfg(not(feature = "wsl"))]
+                 Authenticated::client(stream, self.auth_mechanisms).await?
+             }
+             Some(guid) => {
+@@ -330,6 +346,8 @@ impl<'a> ConnectionBuilder<'a> {
+             interfaces: HashMap::new(),
+             names: HashSet::new(),
+             auth_mechanisms: None,
++            #[cfg(feature = "wsl")]
++            wsl_uid: None,
+         }
+     }
+ }
+diff --git a/zbus/src/handshake.rs b/zbus/src/handshake.rs
+index 1c558e9..2de598a 100644
+--- a/zbus/src/handshake.rs
++++ b/zbus/src/handshake.rs
+@@ -69,6 +69,20 @@ where
+         .await
+     }
+ 
++    /// Create a client-side `Authenticated` for the given socket and WSL distro.
++    #[cfg(feature = "wsl")]
++    pub async fn client_wsl(
++        socket: S,
++        wsl_uid: u32,
++        mechanisms: Option<VecDeque<AuthMechanism>>,
++    ) -> Result<Self> {
++        Handshake {
++            handshake: Some(raw::ClientHandshake::new_wsl(socket, wsl_uid, mechanisms)),
++            phantom: PhantomData,
++        }
++        .await
++    }
++
+     /// Create a server-side `Authenticated` for the given `socket`.
+     ///
+     /// The function takes `client_uid` on Unix only.
+diff --git a/zbus/src/raw/handshake.rs b/zbus/src/raw/handshake.rs
+index 2b40819..8b9648d 100644
+--- a/zbus/src/raw/handshake.rs
++++ b/zbus/src/raw/handshake.rs
+@@ -75,6 +75,8 @@ pub struct ClientHandshake<S> {
+     cap_unix_fd: bool,
+     // the current AUTH mechanism is front, ordered by priority
+     mechanisms: VecDeque<AuthMechanism>,
++    #[cfg(feature = "wsl")]
++    wsl_uid: Option<u32>,
+ }
+ 
+ /// The result of a finalized handshake
+@@ -121,6 +123,7 @@ impl<S: Socket> ClientHandshake<S> {
+         let mechanisms = mechanisms.unwrap_or_else(|| {
+             let mut mechanisms = VecDeque::new();
+             mechanisms.push_back(AuthMechanism::External);
++            #[cfg(not(feature = "wsl"))]
+             mechanisms.push_back(AuthMechanism::Cookie);
+             mechanisms.push_back(AuthMechanism::Anonymous);
+             mechanisms
+@@ -134,9 +137,23 @@ impl<S: Socket> ClientHandshake<S> {
+             server_guid: None,
+             cap_unix_fd: false,
+             mechanisms,
++            #[cfg(feature = "wsl")]
++            wsl_uid: None,
+         }
+     }
+ 
++    /// Start a handshake on this wsl client socket
++    #[cfg(feature = "wsl")]
++    pub(crate) fn new_wsl(
++        socket: S,
++        wsl_uid: u32,
++        mechanisms: Option<VecDeque<AuthMechanism>>,
++    ) -> ClientHandshake<S> {
++        let mut handshake = Self::new(socket, mechanisms);
++        handshake.wsl_uid = Some(wsl_uid);
++        handshake
++    }
++
+     fn flush_buffer(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+         while !self.send_buffer.is_empty() {
+             let written = ready!(self.socket.poll_sendmsg(
+@@ -191,7 +208,13 @@ impl<S: Socket> ClientHandshake<S> {
+             AuthMechanism::Anonymous => Ok((WaitingForOK, Command::Auth(Some(*mech), None))),
+             AuthMechanism::External => Ok((
+                 WaitingForOK,
+-                Command::Auth(Some(*mech), Some(sasl_auth_id()?)),
++                Command::Auth(
++                    Some(*mech),
++                    #[cfg(feature = "wsl")]
++                    self.wsl_uid.map(|uid| hex::encode(uid.to_string())),
++                    #[cfg(not(feature = "wsl"))]
++                    Some(sasl_auth_id()?),
++                ),
+             )),
+             AuthMechanism::Cookie => Ok((
+                 WaitingForData,
+-- 
+2.35.1.windows.2
+
