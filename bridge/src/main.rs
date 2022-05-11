@@ -58,11 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn prepare_header() -> Result<Vec<u8>, Box<dyn Error>> {
-    let info = DistroInfo::new(
-        std::env::var("WSL_DISTRO_NAME")?,
-        whoami::username(),
-        Uid::current().as_raw(),
-    );
+    let info = DistroInfo::new(std::env::var("WSL_DISTRO_NAME")?, Uid::current().as_raw());
 
     let ctxt = zvariant::EncodingContext::<byteorder::NativeEndian>::new_dbus(0);
     let info_bytes = zvariant::to_bytes(ctxt, &info)?;
@@ -79,16 +75,11 @@ pub fn prepare_header() -> Result<Vec<u8>, Box<dyn Error>> {
 #[derive(Serialize, Type)]
 struct DistroInfo {
     distro_name: String,
-    user_name: String,
     uid: u32,
 }
 
 impl DistroInfo {
-    pub fn new(distro_name: String, user_name: String, uid: u32) -> Self {
-        Self {
-            distro_name,
-            user_name,
-            uid,
-        }
+    pub fn new(distro_name: String, uid: u32) -> Self {
+        Self { distro_name, uid }
     }
 }
