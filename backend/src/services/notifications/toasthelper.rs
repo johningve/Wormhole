@@ -1,3 +1,8 @@
+// Copyright (c) 2022 John Ingve Olsen
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 extern crate xml;
 use std::path::PathBuf;
 
@@ -158,7 +163,7 @@ impl ToastHelper {
     pub fn show(&self) -> windows::core::Result<()> {
         // If you have a valid app id, (ie installed using wix) then use it here.
         let toast_notifier = ToastNotificationManager::CreateToastNotifierWithId(HSTRING::from(
-            "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "johnio.wormhole.0.1",
         ))?;
 
         // Show the toast.

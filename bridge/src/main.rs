@@ -1,3 +1,8 @@
+// Copyright (c) 2022 John Ingve Olsen
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 use nix::unistd::Uid;
 use serde::Serialize;
 use std::{error::Error, path::Path};

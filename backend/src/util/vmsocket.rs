@@ -1,3 +1,8 @@
+// Copyright (c) 2022 John Ingve Olsen
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 use scopeguard::ScopeGuard;
 use std::{io, net, os::windows::prelude::FromRawSocket, sync::Once};
 use tokio::net::TcpStream;

@@ -1,3 +1,8 @@
+// Copyright (c) 2022 John Ingve Olsen
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 use anyhow::{bail, Result};
 use common::SOCKET_PATH;
 use daemon::{run_daemon, start_daemon};

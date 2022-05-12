@@ -1,3 +1,8 @@
+// Copyright (c) 2022 John Ingve Olsen
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 use anyhow::{anyhow, bail, Context, Result};
 use nix::sys::wait::waitpid;
 use nix::unistd::{fork, setsid, ForkResult};
